@@ -30,7 +30,10 @@ export class YouTubeApiClient {
   private apiUrl = "https://eo3ys3z8yqseayi.m.pipedream.net"
 
   async getComments(videoId: string, maxResults = 20, pageToken?: string): Promise<YouTubeApiResponse> {
-    console.log(`[YouTubeAPI] Iniciando requisição - VideoID: ${videoId}`)
+    console.log(`[YouTubeAPI] ===== INICIANDO REQUISIÇÃO =====`)
+    console.log(`[YouTubeAPI] VideoID: ${videoId}`)
+    console.log(`[YouTubeAPI] MaxResults: ${maxResults}`)
+    console.log(`[YouTubeAPI] PageToken: ${pageToken || "null"}`)
 
     try {
       const requestBody = {
@@ -39,8 +42,8 @@ export class YouTubeApiClient {
         maxResults,
       }
 
-      console.log(`[YouTubeAPI] Enviando requisição POST para: ${this.apiUrl}`)
-      console.log(`[YouTubeAPI] Corpo da requisição:`, requestBody)
+      console.log(`[YouTubeAPI] URL da API: ${this.apiUrl}`)
+      console.log(`[YouTubeAPI] Corpo da requisição:`, JSON.stringify(requestBody, null, 2))
 
       const response = await fetch(this.apiUrl, {
         method: "POST",
@@ -51,27 +54,38 @@ export class YouTubeApiClient {
       })
 
       console.log(`[YouTubeAPI] Status da resposta: ${response.status}`)
+      console.log(`[YouTubeAPI] Headers da resposta:`, Object.fromEntries(response.headers.entries()))
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
 
       const data = await response.json()
-      console.log(`[YouTubeAPI] Dados recebidos:`, {
-        success: data.success,
-        videoId: data.videoId,
-        totalComments: data.totalComments,
-        commentsCount: data.comments?.length || 0,
-        hasNextPage: data.pagination?.hasNextPage,
-      })
+      console.log(`[YouTubeAPI] ===== RESPOSTA RECEBIDA =====`)
+      console.log(`[YouTubeAPI] Success: ${data.success}`)
+      console.log(`[YouTubeAPI] VideoID retornado: ${data.videoId}`)
+      console.log(`[YouTubeAPI] Total de comentários: ${data.totalComments}`)
+      console.log(`[YouTubeAPI] Comentários na resposta: ${data.comments?.length || 0}`)
+      console.log(`[YouTubeAPI] Próxima página: ${data.pagination?.nextPageToken || "null"}`)
+
+      if (data.comments && data.comments.length > 0) {
+        console.log(`[YouTubeAPI] Primeiro comentário:`, {
+          id: data.comments[0].id,
+          author: data.comments[0].topLevelComment.author.name,
+          text: data.comments[0].topLevelComment.text.substring(0, 100) + "...",
+        })
+      }
 
       if (!data.success) {
+        console.log(`[YouTubeAPI] Erro da API: ${data.error}`)
         throw new Error(data.error || "Erro desconhecido da API")
       }
 
+      console.log(`[YouTubeAPI] ===== REQUISIÇÃO CONCLUÍDA COM SUCESSO =====`)
       return data
     } catch (error) {
-      console.error(`[YouTubeAPI] Erro ao buscar comentários:`, error)
+      console.error(`[YouTubeAPI] ===== ERRO NA REQUISIÇÃO =====`)
+      console.error(`[YouTubeAPI] Erro:`, error)
       return {
         success: false,
         videoId,
@@ -146,9 +160,12 @@ export class YouTubeApiClient {
 
   // Função para converter comentários da API para o formato do sistema
   convertCommentsToMessages(comments: YouTubeComment[], connectionId: string, streamId: string) {
-    console.log(`[YouTubeAPI] Convertendo ${comments.length} comentários para mensagens`)
+    console.log(`[YouTubeAPI] ===== CONVERTENDO COMENTÁRIOS =====`)
+    console.log(`[YouTubeAPI] Comentários recebidos: ${comments.length}`)
+    console.log(`[YouTubeAPI] Connection ID: ${connectionId}`)
+    console.log(`[YouTubeAPI] Stream ID: ${streamId}`)
 
-    return comments.map((comment, index) => {
+    const messages = comments.map((comment, index) => {
       const message = {
         id: `yt-${connectionId}-${comment.id}-${Date.now()}-${index}`,
         sender: comment.topLevelComment.author.name,
@@ -163,23 +180,31 @@ export class YouTubeApiClient {
         streamId: streamId,
         platformData: {
           profileUrl: comment.topLevelComment.author.channelUrl,
-          isVerified: false, // A API não fornece essa informação
+          isVerified: false,
           channelName: comment.topLevelComment.author.name,
           likes: comment.topLevelComment.likeCount,
-          commentId: comment.id, // ID original do comentário da API
+          commentId: comment.id,
           channelId: comment.topLevelComment.author.channelId,
         },
       }
 
-      console.log(`[YouTubeAPI] Comentário convertido:`, {
-        id: message.id,
-        sender: message.sender,
-        commentId: comment.id,
-        streamId: streamId,
-      })
+      if (index === 0) {
+        console.log(`[YouTubeAPI] Primeira mensagem convertida:`, {
+          id: message.id,
+          sender: message.sender,
+          content: message.content.substring(0, 50) + "...",
+          connectionId: message.connectionId,
+          streamId: message.streamId,
+        })
+      }
 
       return message
     })
+
+    console.log(`[YouTubeAPI] Mensagens convertidas: ${messages.length}`)
+    console.log(`[YouTubeAPI] ===== CONVERSÃO CONCLUÍDA =====`)
+
+    return messages
   }
 }
 

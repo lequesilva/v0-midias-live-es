@@ -71,17 +71,24 @@ export default function ConnectYouTube() {
   const [currentVideoId, setCurrentVideoId] = useState<string>("")
 
   // Função para adicionar logs de depuração
-  const addDebugLog = (message: string) => {
+  const addDebugLog = (message: string, data?: any) => {
     if (debugMode) {
-      console.log(`[DEBUG] ${message}`)
+      console.log(`[DEBUG] ${message}`, data)
       setDebugLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${message}`, ...prev.slice(0, 99)])
     }
   }
 
   // Limpar cache do YouTube ao inicializar o componente
   useEffect(() => {
-    addDebugLog("Componente YouTube inicializado - limpando cache")
+    addDebugLog("Componente YouTube inicializado - limpando cache e parando simulações")
     purgeYouTubeCache()
+
+    // IMPORTANTE: Parar qualquer simulação de mensagens para YouTube
+    const state = useWhatsAppStore.getState()
+    if (state.connections.some((conn) => conn.platform === "youtube")) {
+      addDebugLog("Removendo conexões YouTube antigas que podem estar gerando simulações")
+      state.removeConnection("youtube")
+    }
   }, [])
 
   // Atualizar o estado da URL atual quando a conexão mudar
@@ -187,10 +194,24 @@ export default function ConnectYouTube() {
     }
 
     addDebugLog(`[CONNECT] Iniciando conexão com vídeo: ${videoId}`)
+    addDebugLog(`[CONNECT] URL original: ${streamUrl}`)
 
     // IMPORTANTE: Limpar COMPLETAMENTE o cache do YouTube
     addDebugLog("[CONNECT] Limpando cache completo do YouTube")
     purgeYouTubeCache()
+
+    // IMPORTANTE: Verificar se não há outras conexões YouTube ativas
+    const existingYouTubeConnections = useWhatsAppStore
+      .getState()
+      .connections.filter((conn) => conn.platform === "youtube")
+    if (existingYouTubeConnections.length > 0) {
+      addDebugLog(
+        `[CONNECT] AVISO: Encontradas ${existingYouTubeConnections.length} conexões YouTube existentes - removendo`,
+      )
+      existingYouTubeConnections.forEach((conn) => {
+        useWhatsAppStore.getState().removeConnection(conn.connectionId)
+      })
+    }
 
     // Resetar todos os estados
     setNextPageToken(null)
@@ -204,11 +225,29 @@ export default function ConnectYouTube() {
 
     try {
       // Buscar comentários da API para o vídeo específico
-      addDebugLog(`[CONNECT] Buscando comentários da API para vídeo: ${videoId}`)
+      addDebugLog(`[CONNECT] Fazendo requisição para API com videoId: ${videoId}`)
       const response = await fetchCommentsFromApi(videoId, undefined, 20)
+
+      addDebugLog(`[CONNECT] Resposta da API:`, {
+        success: response.success,
+        videoId: response.videoId,
+        commentsCount: response.comments?.length || 0,
+        error: response.error,
+      })
 
       if (response.success) {
         addDebugLog(`[CONNECT] API retornou ${response.comments.length} comentários para vídeo ${videoId}`)
+
+        // VERIFICAÇÃO CRÍTICA: Confirmar que estamos recebendo dados da API
+        if (response.comments.length === 0) {
+          addDebugLog(`[CONNECT] AVISO: API retornou 0 comentários para vídeo ${videoId}`)
+        } else {
+          addDebugLog(`[CONNECT] Primeiro comentário da API:`, {
+            id: response.comments[0].id,
+            author: response.comments[0].topLevelComment.author.name,
+            text: response.comments[0].topLevelComment.text.substring(0, 50) + "...",
+          })
+        }
 
         // Adicionar nova conexão
         addConnection({
@@ -229,10 +268,19 @@ export default function ConnectYouTube() {
           // Converter comentários da API para mensagens do sistema
           const newMessages = youtubeApi.convertCommentsToMessages(response.comments, connectionId, videoId)
 
-          addDebugLog(`[CONNECT] Convertendo ${response.comments.length} comentários em mensagens`)
+          addDebugLog(
+            `[CONNECT] Convertendo ${response.comments.length} comentários em ${newMessages.length} mensagens`,
+          )
+          addDebugLog(`[CONNECT] Primeira mensagem convertida:`, {
+            id: newMessages[0]?.id,
+            sender: newMessages[0]?.sender,
+            content: newMessages[0]?.content?.substring(0, 50) + "...",
+            connectionId: newMessages[0]?.connectionId,
+          })
 
-          // Definir as novas mensagens (substituindo qualquer mensagem anterior)
+          // CRÍTICO: Definir as novas mensagens (substituindo qualquer mensagem anterior)
           setMessages(newMessages)
+          addDebugLog(`[CONNECT] Mensagens definidas no estado: ${newMessages.length}`)
 
           // Atualizar controles de paginação
           setNextPageToken(response.pagination.nextPageToken || null)

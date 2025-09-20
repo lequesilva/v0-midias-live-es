@@ -548,7 +548,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
       updateLastRefreshTime: () => set({ lastRefreshTime: Date.now() }),
 
       simulateNewMessages: () => {
-        // REMOVIDO: Não simular mensagens para YouTube, usar apenas API real
         const state = get()
         const platforms = state.connections
           .filter((conn) => conn.isConnected && conn.platform !== "youtube")
@@ -556,14 +555,11 @@ export const useWhatsAppStore = create<WhatsAppState>()(
 
         if (platforms.length === 0) return
 
-        // Escolher uma plataforma aleatória entre as conectadas (exceto YouTube)
         const randomPlatform = platforms[Math.floor(Math.random() * platforms.length)]
 
-        // Obter a conexão específica para a plataforma selecionada
         const platformConnection = state.connections.find((conn) => conn.platform === randomPlatform)
-        if (!platformConnection) return // Não continuar se não encontrar a conexão
+        if (!platformConnection) return
 
-        // Gerar uma mensagem aleatória apenas para plataformas que não sejam YouTube
         const randomNames = [
           "Ana Silva",
           "Carlos Oliveira",
@@ -588,7 +584,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
         const randomName = randomNames[Math.floor(Math.random() * randomNames.length)]
         const randomMessage = randomMessages[Math.floor(Math.random() * randomMessages.length)]
 
-        // Adicionar um ID único com timestamp e connectionId para evitar duplicações
         const uniqueId = `${randomPlatform}-${platformConnection.connectionId}-${Date.now()}-${Math.floor(Math.random() * 10000)}`
 
         const newMessage = {
@@ -643,10 +638,8 @@ export const useWhatsAppStore = create<WhatsAppState>()(
       },
 
       refreshMessages: () => {
-        // MODIFICADO: Não gerar mensagens simuladas para YouTube
         const state = get()
 
-        // Limpar mensagens antigas (exceto as em exibição)
         const displayedMessageIds = state.displayedMessages.map((msg) => msg.id)
         const filteredMessages = state.messages.filter((msg) => displayedMessageIds.includes(msg.id))
 
@@ -655,29 +648,23 @@ export const useWhatsAppStore = create<WhatsAppState>()(
           lastRefreshTime: Date.now(),
         })
 
-        // Verificar quais plataformas estão realmente conectadas (exceto YouTube)
         const platforms = state.connections
           .filter((conn) => conn.isConnected && conn.platform !== "youtube")
           .map((conn) => conn.platform)
 
-        // Se não houver plataformas conectadas (exceto YouTube), não gerar novas mensagens
         if (platforms.length === 0) return
 
-        // Gerar mensagens apenas para plataformas que não sejam YouTube
         const newMessages = []
-        const count = Math.floor(Math.random() * 5) + 3 // 3 a 7 novas mensagens
+        const count = Math.floor(Math.random() * 5) + 3
 
         for (let i = 0; i < count; i++) {
-          // Garantir uma distribuição equilibrada entre as plataformas (exceto YouTube)
           const platformIndex = i % platforms.length
           const platform = platforms[platformIndex]
-          const timestamp = new Date(Date.now() - Math.floor(Math.random() * 300000)) // Últimos 5 minutos
+          const timestamp = new Date(Date.now() - Math.floor(Math.random() * 300000))
 
-          // Obter a conexão específica para a plataforma
           const connection = state.connections.find((conn) => conn.platform === platform)
-          if (!connection) continue // Pular se não encontrar a conexão
+          if (!connection) continue
 
-          // Gerar mensagens simuladas apenas para plataformas que não sejam YouTube
           const randomNames = [
             "Ana Silva",
             "Carlos Oliveira",
@@ -703,7 +690,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
           const randomMessage = randomMessages[Math.floor(Math.random() * randomMessages.length)]
           const avatarUrl = `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 70)}`
 
-          // Adicionar um ID único com timestamp e connectionId para evitar duplicações
           const uniqueId = `${platform}-${connection.connectionId}-${Date.now()}-${Math.floor(Math.random() * 10000)}-${i}`
 
           newMessages.push({
@@ -724,7 +710,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
           })
         }
 
-        // Adicionar as novas mensagens
         set((state) => ({
           messages: [...newMessages, ...state.messages],
           lastRefreshTime: Date.now(),
@@ -732,7 +717,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
       },
 
       clearMessages: () => {
-        // Manter apenas as mensagens que estão em exibição
         const displayedMessageIds = useWhatsAppStore.getState().displayedMessages.map((msg) => msg.id)
 
         set((state) => {
@@ -744,7 +728,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
 
           debugLog(state.debugMode, "Mensagens após filtragem:", filteredMessages.length)
 
-          // Desativar temporariamente a atualização automática
           const updatedConfig = {
             ...state.displayConfig,
             autoRefreshInterval: 0,
@@ -757,7 +740,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
           }
         })
 
-        // Forçar uma atualização do estado para garantir que as mudanças sejam aplicadas
         setTimeout(() => {
           set({
             lastRefreshTime: Date.now(),
@@ -765,16 +747,13 @@ export const useWhatsAppStore = create<WhatsAppState>()(
         }, 100)
       },
 
-      // Funções para gerenciamento de mensagens por conexão
       clearConnectionMessages: (platform: PlatformType, connectionId: string) => {
         const state = get()
         debugLog(state.debugMode, `Limpando mensagens da conexão: ${connectionId} (plataforma: ${platform})`)
 
-        // Obter IDs das mensagens em exibição
         const displayedMessageIds = state.displayedMessages.map((msg) => msg.id)
 
         set((state) => {
-          // Filtrar mensagens: manter as que estão em exibição e as de outras conexões
           const filteredMessages = state.messages.filter(
             (msg) =>
               displayedMessageIds.includes(msg.id) || !(msg.platform === platform && msg.connectionId === connectionId),
@@ -797,13 +776,9 @@ export const useWhatsAppStore = create<WhatsAppState>()(
         debugLog(state.debugMode, `Removendo TODAS as mensagens da conexão: ${connectionId}`)
 
         set((state) => {
-          // Remover todas as mensagens desta conexão, incluindo as em exibição
           const filteredMessages = state.messages.filter((msg) => msg.connectionId !== connectionId)
-
-          // Remover mensagens da conexão que estão em exibição
           const filteredDisplayedMessages = state.displayedMessages.filter((msg) => msg.connectionId !== connectionId)
 
-          // Atualizar o índice de exibição se necessário
           const newIndex = Math.min(state.currentDisplayIndex, filteredDisplayedMessages.length - 1)
 
           return {
@@ -815,7 +790,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
         })
       },
 
-      // Gerenciamento de programas
       addProgram: (program) => {
         const id = `program-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
         set((state) => ({
@@ -837,12 +811,10 @@ export const useWhatsAppStore = create<WhatsAppState>()(
         return get().programs.find((program) => program.id === id)
       },
 
-      // Implementação da função getMessageStatsByProgram
       getMessageStatsByProgram: (programId: string) => {
         const history = get().messageHistory
         const stats: Record<string, number> = {}
 
-        // Contar mensagens por plataforma para o programa específico
         history.forEach((entry) => {
           if (entry.programId === programId) {
             if (!stats[entry.platform]) {
@@ -852,7 +824,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
           }
         })
 
-        // Converter para array de PlatformStats
         return Object.entries(stats).map(([platform, count]) => ({
           platform: platform as PlatformType,
           count,
@@ -861,43 +832,35 @@ export const useWhatsAppStore = create<WhatsAppState>()(
     }),
     {
       name: "whats-live-storage",
-      // Controlar o que é persistido para evitar problemas entre sessões
       partialize: (state) => ({
-        // Persistir apenas configurações e layouts, não mensagens ou conexões
         displayConfig: state.displayConfig,
         savedLayouts: state.savedLayouts,
         programs: state.programs,
-        // IMPORTANTE: Não persistir mensagens, conexões ou mensagens em exibição do YouTube
         connections: state.connections.filter((conn) => conn.platform !== "youtube"),
         messages: state.messages.filter((msg) => msg.platform !== "youtube"),
         displayedMessages: state.displayedMessages.filter((msg) => msg.platform !== "youtube"),
         messageHistory: state.messageHistory.filter((msg) => msg.platform !== "youtube"),
-        // Importante: forçar a limpeza do estado
         lastRefreshTime: Date.now(),
       }),
     },
   ),
 )
 
-// Função para ativar o modo de depuração
 export const enableDebugMode = () => {
   useWhatsAppStore.setState({ debugMode: true })
   console.log("[DEBUG] Modo de depuração ativado")
 }
 
-// Função para desativar o modo de depuração
 export const disableDebugMode = () => {
   useWhatsAppStore.setState({ debugMode: false })
   console.log("[DEBUG] Modo de depuração desativado")
 }
 
-// Função para limpar completamente o armazenamento local
 export const clearLocalStorage = () => {
   localStorage.removeItem("whats-live-storage")
   console.log("Armazenamento local limpo. Recarregue a página para reiniciar o aplicativo.")
 }
 
-// Função para limpar completamente o cache local e recarregar a página
 export const purgeLocalStorageAndReload = () => {
   localStorage.removeItem("whats-live-storage")
   console.log("Armazenamento local limpo. Recarregando a página...")
