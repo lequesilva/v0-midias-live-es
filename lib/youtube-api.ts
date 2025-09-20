@@ -27,7 +27,7 @@ interface YouTubeApiResponse {
 }
 
 export class YouTubeApiClient {
-  private apiUrl = "https://eo3ys3z8yqseayi.m.pipedream.net"
+  public apiUrl = "https://eo3ys3z8yqseayi.m.pipedream.net"
 
   async getComments(videoId: string, maxResults = 20, pageToken?: string): Promise<YouTubeApiResponse> {
     console.log(`[YouTubeAPI] ===== INICIANDO REQUISIÇÃO =====`)
@@ -49,6 +49,7 @@ export class YouTubeApiClient {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
         },
         body: JSON.stringify(requestBody),
       })
@@ -57,10 +58,22 @@ export class YouTubeApiClient {
       console.log(`[YouTubeAPI] Headers da resposta:`, Object.fromEntries(response.headers.entries()))
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const errorText = await response.text()
+        console.error(`[YouTubeAPI] Erro HTTP: ${response.status} - ${errorText}`)
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`)
       }
 
-      const data = await response.json()
+      const responseText = await response.text()
+      console.log(`[YouTubeAPI] Resposta bruta:`, responseText)
+
+      let data: YouTubeApiResponse
+      try {
+        data = JSON.parse(responseText)
+      } catch (parseError) {
+        console.error(`[YouTubeAPI] Erro ao fazer parse do JSON:`, parseError)
+        throw new Error(`Erro ao fazer parse da resposta JSON: ${parseError}`)
+      }
+
       console.log(`[YouTubeAPI] ===== RESPOSTA RECEBIDA =====`)
       console.log(`[YouTubeAPI] Success: ${data.success}`)
       console.log(`[YouTubeAPI] VideoID retornado: ${data.videoId}`)
@@ -86,49 +99,70 @@ export class YouTubeApiClient {
     } catch (error) {
       console.error(`[YouTubeAPI] ===== ERRO NA REQUISIÇÃO =====`)
       console.error(`[YouTubeAPI] Erro:`, error)
-      return {
-        success: false,
-        videoId,
-        totalComments: 0,
-        comments: [],
-        pagination: {
-          hasNextPage: false,
-        },
-        error: error instanceof Error ? error.message : "Erro desconhecido",
+      
+      // Tentar requisição GET como fallback
+      console.log(`[YouTubeAPI] Tentando requisição GET como fallback...`)
+      try {
+        return await this.getCommentsViaGet(videoId, maxResults, pageToken)
+      } catch (fallbackError) {
+        console.error(`[YouTubeAPI] Fallback GET também falhou:`, fallbackError)
+        return {
+          success: false,
+          videoId,
+          totalComments: 0,
+          comments: [],
+          pagination: {
+            hasNextPage: false,
+          },
+          error: error instanceof Error ? error.message : "Erro desconhecido",
+        }
       }
     }
   }
 
-  async getCommentsViaGet(videoId: string, maxResults = 20): Promise<YouTubeApiResponse> {
+  async getCommentsViaGet(videoId: string, maxResults = 20, pageToken?: string): Promise<YouTubeApiResponse> {
     try {
-      const url = `${this.apiUrl}?videoId=${encodeURIComponent(videoId)}&maxResults=${maxResults}`
-      console.log(`[YouTubeAPI] Fazendo requisição GET para: ${url}`)
-
-      const response = await fetch(url)
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+      const params = new URLSearchParams({
+        videoId,
+        maxResults: maxResults.toString(),
+      })
+      
+      if (pageToken) {
+        params.append('pageToken', pageToken)
       }
 
-      const data = await response.json()
+      const url = `${this.apiUrl}?${params.toString()}`
+      console.log(`[YouTubeAPI] Fazendo requisição GET para: ${url}`)
+
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+        },
+      })
+
+      console.log(`[YouTubeAPI] Status da resposta GET: ${response.status}`)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error(`[YouTubeAPI] Erro HTTP GET: ${response.status} - ${errorText}`)
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`)
+      }
+
+      const responseText = await response.text()
+      console.log(`[YouTubeAPI] Resposta GET bruta:`, responseText)
+
+      const data = JSON.parse(responseText)
 
       if (!data.success) {
         throw new Error(data.error || "Erro desconhecido da API")
       }
 
+      console.log(`[YouTubeAPI] Requisição GET bem-sucedida, ${data.comments?.length || 0} comentários recebidos`)
       return data
     } catch (error) {
       console.error("Erro ao buscar comentários via GET:", error)
-      return {
-        success: false,
-        videoId,
-        totalComments: 0,
-        comments: [],
-        pagination: {
-          hasNextPage: false,
-        },
-        error: error instanceof Error ? error.message : "Erro desconhecido",
-      }
+      throw error
     }
   }
 
@@ -205,6 +239,49 @@ export class YouTubeApiClient {
     console.log(`[YouTubeAPI] ===== CONVERSÃO CONCLUÍDA =====`)
 
     return messages
+  }
+
+  // Função para testar a conectividade com a API
+  async testConnection(): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log(`[YouTubeAPI] Testando conectividade com a API...`)
+      
+      // Usar um videoId de teste conhecido
+      const testVideoId = "dQw4w9WgXcQ" // Rick Roll - vídeo público conhecido
+      
+      const response = await fetch(this.apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({
+          videoId: testVideoId,
+          maxResults: 1,
+          pageToken: null,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      
+      if (data.success) {
+        console.log(`[YouTubeAPI] Teste de conectividade bem-sucedido`)
+        return { success: true }
+      } else {
+        console.log(`[YouTubeAPI] API retornou erro: ${data.error}`)
+        return { success: false, error: data.error }
+      }
+    } catch (error) {
+      console.error(`[YouTubeAPI] Erro no teste de conectividade:`, error)
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : "Erro desconhecido" 
+      }
+    }
   }
 }
 

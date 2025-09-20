@@ -196,6 +196,17 @@ export default function ConnectYouTube() {
     addDebugLog(`[CONNECT] Iniciando conexão com vídeo: ${videoId}`)
     addDebugLog(`[CONNECT] URL original: ${streamUrl}`)
 
+    // Primeiro, testar a conectividade com a API
+    addDebugLog(`[CONNECT] Testando conectividade com a API...`)
+    const connectionTest = await youtubeApi.testConnection()
+    if (!connectionTest.success) {
+      setIsLoading(false)
+      setError(`Erro de conectividade com a API: ${connectionTest.error}`)
+      addDebugLog(`[CONNECT] Teste de conectividade falhou: ${connectionTest.error}`)
+      return
+    }
+    addDebugLog(`[CONNECT] Teste de conectividade bem-sucedido`)
+
     // IMPORTANTE: Limpar COMPLETAMENTE o cache do YouTube
     addDebugLog("[CONNECT] Limpando cache completo do YouTube")
     purgeYouTubeCache()
@@ -241,6 +252,11 @@ export default function ConnectYouTube() {
         // VERIFICAÇÃO CRÍTICA: Confirmar que estamos recebendo dados da API
         if (response.comments.length === 0) {
           addDebugLog(`[CONNECT] AVISO: API retornou 0 comentários para vídeo ${videoId}`)
+          toast({
+            title: "Aviso",
+            description: `A API retornou 0 comentários para o vídeo ${videoId}. Isso pode ser normal se o vídeo não tiver comentários ou se os comentários estiverem desabilitados.`,
+            variant: "default",
+          })
         } else {
           addDebugLog(`[CONNECT] Primeiro comentário da API:`, {
             id: response.comments[0].id,
@@ -854,15 +870,23 @@ export default function ConnectYouTube() {
                   <li>• Paginação para carregar mais comentários</li>
                   <li>• Atualização automática configurável</li>
                   <li>• Cache limpo a cada nova conexão</li>
+                  <li>• Teste de conectividade automático</li>
+                  <li>• Fallback para requisições GET</li>
                 </ul>
               </div>
 
               <div className="p-3 bg-orange-50 text-orange-700 rounded-md text-sm">
                 <AlertTriangle className="inline-block mr-2 h-4 w-4" />
                 <span>
-                  <strong>Teste com sua URL:</strong> Cole a URL https://youtu.be/etOVnZELmSw ou qualquer outra
-                  transmissão ao vivo para testar a integração real.
+                  <strong>Teste com sua URL:</strong> Cole qualquer URL do YouTube (como https://youtu.be/dQw4w9WgXcQ) 
+                  para testar a integração real com sua API.
                 </span>
+              </div>
+
+              <div className="p-3 bg-gray-50 text-gray-700 rounded-md text-sm">
+                <strong>Sua API:</strong> {youtubeApi.apiUrl || "https://eo3ys3z8yqseayi.m.pipedream.net"}
+                <br />
+                <span className="text-xs">A integração testará automaticamente a conectividade antes de conectar.</span>
               </div>
             </div>
           </div>
