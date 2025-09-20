@@ -30,12 +30,15 @@ export interface Message {
   messageType?: MessageType
   programId?: string
   connectionId: string // ID único da conexão (obrigatório)
+  streamId?: string // Para YouTube Live
   platformData?: {
     profileUrl?: string
     isVerified?: boolean
     likes?: number
     channelName?: string
     postId?: string
+    commentId?: string // ID original do comentário da API
+    channelId?: string
   }
   phoneData?: {
     phoneNumber?: string
@@ -163,6 +166,9 @@ interface WhatsAppState {
 
   // Adicionar função para obter estatísticas de mensagens por programa
   getMessageStatsByProgram: (programId: string) => PlatformStats[]
+
+  // Nova função para limpar completamente o cache do YouTube
+  purgeYouTubeCache: () => void
 }
 
 // Função auxiliar para log de depuração
@@ -206,6 +212,44 @@ export const useWhatsAppStore = create<WhatsAppState>()(
 
       setDebugMode: (enabled) => set({ debugMode: enabled }),
 
+      // Nova função para limpar completamente o cache do YouTube
+      purgeYouTubeCache: () => {
+        const state = get()
+        debugLog(state.debugMode, "Limpando COMPLETAMENTE o cache do YouTube")
+
+        set((state) => {
+          // Remover TODAS as mensagens do YouTube
+          const nonYoutubeMessages = state.messages.filter((msg) => msg.platform !== "youtube")
+
+          // Remover TODAS as mensagens do YouTube em exibição
+          const nonYoutubeDisplayedMessages = state.displayedMessages.filter((msg) => msg.platform !== "youtube")
+
+          // Remover TODAS as conexões do YouTube
+          const nonYoutubeConnections = state.connections.filter((conn) => conn.platform !== "youtube")
+
+          debugLog(
+            state.debugMode,
+            `Removidas ${state.messages.length - nonYoutubeMessages.length} mensagens do YouTube`,
+          )
+          debugLog(
+            state.debugMode,
+            `Removidas ${state.displayedMessages.length - nonYoutubeDisplayedMessages.length} mensagens em exibição do YouTube`,
+          )
+          debugLog(
+            state.debugMode,
+            `Removidas ${state.connections.length - nonYoutubeConnections.length} conexões do YouTube`,
+          )
+
+          return {
+            messages: nonYoutubeMessages,
+            displayedMessages: nonYoutubeDisplayedMessages,
+            connections: nonYoutubeConnections,
+            currentDisplayIndex: nonYoutubeDisplayedMessages.length > 0 ? 0 : 0,
+            lastRefreshTime: Date.now(),
+          }
+        })
+      },
+
       addConnection: (connection) =>
         set((state) => {
           // Garantir que a conexão tenha um ID único
@@ -215,7 +259,24 @@ export const useWhatsAppStore = create<WhatsAppState>()(
 
           debugLog(state.debugMode, "Adicionando conexão:", connection)
 
-          // Verificar se já existe uma conexão para esta plataforma
+          // Para YouTube, sempre remover conexões anteriores completamente
+          if (connection.platform === "youtube") {
+            // Limpar completamente o cache do YouTube antes de adicionar nova conexão
+            const nonYoutubeMessages = state.messages.filter((msg) => msg.platform !== "youtube")
+            const nonYoutubeDisplayedMessages = state.displayedMessages.filter((msg) => msg.platform !== "youtube")
+            const nonYoutubeConnections = state.connections.filter((conn) => conn.platform !== "youtube")
+
+            debugLog(state.debugMode, "Limpando cache do YouTube antes de nova conexão")
+
+            return {
+              connections: [...nonYoutubeConnections, connection],
+              messages: nonYoutubeMessages,
+              displayedMessages: nonYoutubeDisplayedMessages,
+              currentDisplayIndex: nonYoutubeDisplayedMessages.length > 0 ? 0 : 0,
+            }
+          }
+
+          // Para outras plataformas, verificar se já existe uma conexão
           const existingIndex = state.connections.findIndex((c) => c.platform === connection.platform)
 
           if (existingIndex >= 0) {
@@ -257,6 +318,12 @@ export const useWhatsAppStore = create<WhatsAppState>()(
       removeConnection: (platform) => {
         const state = get()
         debugLog(state.debugMode, `Removendo conexão da plataforma: ${platform}`)
+
+        // Para YouTube, usar a função de limpeza completa
+        if (platform === "youtube") {
+          state.purgeYouTubeCache()
+          return
+        }
 
         // Encontrar a conexão a ser removida
         const connectionToRemove = state.connections.find((c) => c.platform === platform)
@@ -481,19 +548,22 @@ export const useWhatsAppStore = create<WhatsAppState>()(
       updateLastRefreshTime: () => set({ lastRefreshTime: Date.now() }),
 
       simulateNewMessages: () => {
+        // REMOVIDO: Não simular mensagens para YouTube, usar apenas API real
         const state = get()
-        const platforms = state.connections.filter((conn) => conn.isConnected).map((conn) => conn.platform)
+        const platforms = state.connections
+          .filter((conn) => conn.isConnected && conn.platform !== "youtube")
+          .map((conn) => conn.platform)
 
         if (platforms.length === 0) return
 
-        // Escolher uma plataforma aleatória entre as conectadas
+        // Escolher uma plataforma aleatória entre as conectadas (exceto YouTube)
         const randomPlatform = platforms[Math.floor(Math.random() * platforms.length)]
 
         // Obter a conexão específica para a plataforma selecionada
         const platformConnection = state.connections.find((conn) => conn.platform === randomPlatform)
         if (!platformConnection) return // Não continuar se não encontrar a conexão
 
-        // Gerar uma mensagem aleatória
+        // Gerar uma mensagem aleatória apenas para plataformas que não sejam YouTube
         const randomNames = [
           "Ana Silva",
           "Carlos Oliveira",
@@ -573,32 +643,32 @@ export const useWhatsAppStore = create<WhatsAppState>()(
       },
 
       refreshMessages: () => {
-        // Limpar mensagens antigas
-        set((state) => {
-          // Manter apenas as mensagens que estão em exibição
-          const displayedMessageIds = state.displayedMessages.map((msg) => msg.id)
-          const filteredMessages = state.messages.filter((msg) => displayedMessageIds.includes(msg.id))
+        // MODIFICADO: Não gerar mensagens simuladas para YouTube
+        const state = get()
 
-          return {
-            messages: filteredMessages,
-            lastRefreshTime: Date.now(),
-          }
+        // Limpar mensagens antigas (exceto as em exibição)
+        const displayedMessageIds = state.displayedMessages.map((msg) => msg.id)
+        const filteredMessages = state.messages.filter((msg) => displayedMessageIds.includes(msg.id))
+
+        set({
+          messages: filteredMessages,
+          lastRefreshTime: Date.now(),
         })
 
-        // Simular novas mensagens
-        const state = get()
-        // Verificar quais plataformas estão realmente conectadas
-        const platforms = state.connections.filter((conn) => conn.isConnected).map((conn) => conn.platform)
+        // Verificar quais plataformas estão realmente conectadas (exceto YouTube)
+        const platforms = state.connections
+          .filter((conn) => conn.isConnected && conn.platform !== "youtube")
+          .map((conn) => conn.platform)
 
-        // Se não houver plataformas conectadas, não gerar novas mensagens
+        // Se não houver plataformas conectadas (exceto YouTube), não gerar novas mensagens
         if (platforms.length === 0) return
 
-        // Gerar várias mensagens novas
+        // Gerar mensagens apenas para plataformas que não sejam YouTube
         const newMessages = []
         const count = Math.floor(Math.random() * 5) + 3 // 3 a 7 novas mensagens
 
         for (let i = 0; i < count; i++) {
-          // Garantir uma distribuição equilibrada entre as plataformas
+          // Garantir uma distribuição equilibrada entre as plataformas (exceto YouTube)
           const platformIndex = i % platforms.length
           const platform = platforms[platformIndex]
           const timestamp = new Date(Date.now() - Math.floor(Math.random() * 300000)) // Últimos 5 minutos
@@ -607,138 +677,31 @@ export const useWhatsAppStore = create<WhatsAppState>()(
           const connection = state.connections.find((conn) => conn.platform === platform)
           if (!connection) continue // Pular se não encontrar a conexão
 
-          // Nomes e mensagens específicas por plataforma
-          let randomName = ""
-          let randomMessage = ""
-          let avatarUrl = ""
+          // Gerar mensagens simuladas apenas para plataformas que não sejam YouTube
+          const randomNames = [
+            "Ana Silva",
+            "Carlos Oliveira",
+            "Mariana Santos",
+            "Pedro Costa",
+            "Juliana Lima",
+            "Rafael Souza",
+            "Fernanda Alves",
+            "Bruno Pereira",
+          ]
+          const randomMessages = [
+            "Olá! Estou adorando a transmissão de hoje!",
+            "Quando será o próximo evento?",
+            "Parabéns pelo trabalho! Vocês são incríveis.",
+            "Essa é minha primeira vez aqui, muito legal!",
+            "Vocês poderiam falar sobre o tema X na próxima vez?",
+            "Estou compartilhando com todos os meus amigos!",
+            "De onde vocês estão transmitindo hoje?",
+            "Qual é a música de fundo?",
+          ]
 
-          // Dados específicos da plataforma
-          let platformData = {}
-
-          // Configurar dados específicos por plataforma
-          switch (platform) {
-            case "youtube":
-              const youtubeNames = [
-                "Fã do Canal",
-                "Criador de Conteúdo",
-                "YouTuber BR",
-                "Gamer Online",
-                "Tech Reviewer",
-                "Música Boa",
-                "Viajante Digital",
-                "Cozinha Fácil",
-              ]
-              const youtubeMessages = [
-                "Essa live está incrível! Parabéns pelo conteúdo!",
-                "Quando será o próximo evento?",
-                "Já deixei meu like e me inscrevi no canal!",
-                "Vocês poderiam fazer uma live sobre o tema X?",
-                "Estou compartilhando com todos os meus amigos!",
-                "De onde vocês estão transmitindo hoje?",
-                "Qual é a música de fundo?",
-                "Primeira vez assistindo, já virei fã!",
-              ]
-              randomName = youtubeNames[Math.floor(Math.random() * youtubeNames.length)]
-              randomMessage = youtubeMessages[Math.floor(Math.random() * youtubeMessages.length)]
-              avatarUrl = `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 70)}`
-              platformData = {
-                profileUrl: `https://youtube.com/user/${Math.floor(Math.random() * 10000)}`,
-                isVerified: Math.random() > 0.8,
-                channelName: randomName,
-              }
-              break
-
-            case "facebook":
-              const facebookNames = [
-                "Maria Silva",
-                "João Oliveira",
-                "Ana Santos",
-                "Carlos Pereira",
-                "Juliana Costa",
-                "Roberto Almeida",
-                "Fernanda Lima",
-                "Lucas Martins",
-              ]
-              const facebookMessages = [
-                "Adoro o conteúdo da página! Sempre acompanho as publicações.",
-                "Quando será o próximo evento? Estou ansioso para participar!",
-                "Parabéns pelo trabalho! Vocês são incríveis.",
-                "Compartilhei com meus amigos, todos adoraram!",
-                "Essa transmissão está com uma qualidade excelente!",
-                "Primeira vez assistindo, já me tornei fã!",
-                "Vocês poderiam falar sobre o tema X na próxima vez?",
-                "Estou aprendendo muito com vocês!",
-              ]
-              randomName = facebookNames[Math.floor(Math.random() * facebookNames.length)]
-              randomMessage = facebookMessages[Math.floor(Math.random() * facebookMessages.length)]
-              avatarUrl = `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 70)}`
-              platformData = {
-                profileUrl: `https://facebook.com/user/${Math.floor(Math.random() * 10000)}`,
-                isVerified: Math.random() > 0.9,
-              }
-              break
-
-            case "instagram":
-              const instagramNames = [
-                "ana.fotografia",
-                "viagens_mundo",
-                "fitness.life",
-                "moda_estilo",
-                "culinaria_facil",
-                "arte.digital",
-                "musica_boa",
-                "natureza_viva",
-              ]
-              const instagramMessages = [
-                "Que conteúdo incrível! Qual câmera você usa?",
-                "Adorei esse formato de live! Muito interativo!",
-                "Já salvei nos favoritos para assistir depois!",
-                "Vocês são uma inspiração para mim!",
-                "De onde vocês estão transmitindo? O lugar parece incrível!",
-                "Primeira vez assistindo, já me tornei fã!",
-                "Vocês poderiam fazer um tutorial sobre isso?",
-                "Estou aprendendo muito com vocês!",
-              ]
-              randomName = instagramNames[Math.floor(Math.random() * instagramNames.length)]
-              randomMessage = instagramMessages[Math.floor(Math.random() * instagramMessages.length)]
-              avatarUrl = `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 70)}`
-              platformData = {
-                profileUrl: `https://instagram.com/${randomName}`,
-                isVerified: Math.random() > 0.8,
-              }
-              break
-
-            case "whatsapp":
-            default:
-              const whatsappNames = [
-                "Ana Silva",
-                "Carlos Oliveira",
-                "Mariana Santos",
-                "Pedro Costa",
-                "Juliana Lima",
-                "Rafael Souza",
-                "Fernanda Alves",
-                "Bruno Pereira",
-                "Luciana Mendes",
-                "Gustavo Rocha",
-                "Camila Dias",
-                "Diego Cardoso",
-              ]
-              const whatsappMessages = [
-                "Olá! Estou adorando a transmissão de hoje!",
-                "Quando será o próximo evento?",
-                "Parabéns pelo trabalho! Vocês são incríveis.",
-                "Essa é minha primeira vez aqui, muito legal!",
-                "Vocês poderiam falar sobre o tema X na próxima vez?",
-                "Estou compartilhando com todos os meus amigos!",
-                "De onde vocês estão transmitindo hoje?",
-                "Qual é a música de fundo?",
-              ]
-              randomName = whatsappNames[Math.floor(Math.random() * whatsappNames.length)]
-              randomMessage = whatsappMessages[Math.floor(Math.random() * whatsappMessages.length)]
-              avatarUrl = `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 70)}`
-              break
-          }
+          const randomName = randomNames[Math.floor(Math.random() * randomNames.length)]
+          const randomMessage = randomMessages[Math.floor(Math.random() * randomMessages.length)]
+          const avatarUrl = `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 70)}`
 
           // Adicionar um ID único com timestamp e connectionId para evitar duplicações
           const uniqueId = `${platform}-${connection.connectionId}-${Date.now()}-${Math.floor(Math.random() * 10000)}-${i}`
@@ -754,7 +717,10 @@ export const useWhatsAppStore = create<WhatsAppState>()(
             mediaUrl: null,
             platform: platform,
             connectionId: connection.connectionId,
-            platformData: platformData,
+            platformData: {
+              profileUrl: `https://example.com/user/${Math.floor(Math.random() * 1000)}`,
+              isVerified: Math.random() > 0.8,
+            },
           })
         }
 
@@ -901,11 +867,11 @@ export const useWhatsAppStore = create<WhatsAppState>()(
         displayConfig: state.displayConfig,
         savedLayouts: state.savedLayouts,
         programs: state.programs,
-        // Não persistir mensagens, conexões ou mensagens em exibição
-        connections: [],
-        messages: [],
-        displayedMessages: [],
-        messageHistory: [],
+        // IMPORTANTE: Não persistir mensagens, conexões ou mensagens em exibição do YouTube
+        connections: state.connections.filter((conn) => conn.platform !== "youtube"),
+        messages: state.messages.filter((msg) => msg.platform !== "youtube"),
+        displayedMessages: state.displayedMessages.filter((msg) => msg.platform !== "youtube"),
+        messageHistory: state.messageHistory.filter((msg) => msg.platform !== "youtube"),
         // Importante: forçar a limpeza do estado
         lastRefreshTime: Date.now(),
       }),

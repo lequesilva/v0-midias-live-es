@@ -17,10 +17,13 @@ import {
   Clock,
   RotateCw,
   History,
+  ExternalLink,
+  AlertTriangle,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Switch } from "@/components/ui/switch"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { youtubeApi } from "@/lib/youtube-api"
 
 export default function ConnectYouTube() {
   const {
@@ -35,6 +38,7 @@ export default function ConnectYouTube() {
     setDebugMode,
     displayedMessages,
     removeMessageFromDisplay,
+    purgeYouTubeCache,
   } = useWhatsAppStore()
   const [streamUrl, setStreamUrl] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -47,10 +51,16 @@ export default function ConnectYouTube() {
   const [debugLogs, setDebugLogs] = useState<string[]>([])
   const { toast } = useToast()
 
-  // Novo estado para armazenar o último ID de comentário
-  const [lastCommentId, setLastCommentId] = useState<string | null>(null)
-  // Contador para simular novos comentários
-  const [commentCounter, setCommentCounter] = useState(0)
+  // Estados para controle da API
+  const [nextPageToken, setNextPageToken] = useState<string | null>(null)
+  const [totalCommentsLoaded, setTotalCommentsLoaded] = useState(0)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [apiStats, setApiStats] = useState({
+    totalRequests: 0,
+    successfulRequests: 0,
+    failedRequests: 0,
+    lastRequestTime: null as Date | null,
+  })
 
   // Verificar se o YouTube já está conectado
   const youtubeConnection = connections.find((conn) => conn.platform === "youtube")
@@ -58,7 +68,7 @@ export default function ConnectYouTube() {
 
   // Armazenar a URL atual quando conectado
   const [currentConnectedUrl, setCurrentConnectedUrl] = useState<string>("")
-  const [urlHistory, setUrlHistory] = useState<{ url: string; connectionId: string; timestamp: string }[]>([])
+  const [currentVideoId, setCurrentVideoId] = useState<string>("")
 
   // Função para adicionar logs de depuração
   const addDebugLog = (message: string) => {
@@ -68,33 +78,30 @@ export default function ConnectYouTube() {
     }
   }
 
+  // Limpar cache do YouTube ao inicializar o componente
+  useEffect(() => {
+    addDebugLog("Componente YouTube inicializado - limpando cache")
+    purgeYouTubeCache()
+  }, [])
+
   // Atualizar o estado da URL atual quando a conexão mudar
   useEffect(() => {
     if (youtubeConnection?.streamId) {
       setCurrentConnectedUrl(youtubeConnection.streamId)
-
-      // Adicionar à lista de histórico se não existir
-      const exists = urlHistory.some((item) => item.url === youtubeConnection.streamId)
-      if (!exists && youtubeConnection.connectionId) {
-        setUrlHistory((prev) => [
-          {
-            url: youtubeConnection.streamId!,
-            connectionId: youtubeConnection.connectionId!,
-            timestamp: new Date().toISOString(),
-          },
-          ...prev,
-        ])
-        addDebugLog(`URL adicionada ao histórico: ${youtubeConnection.streamId}`)
-      }
+      setCurrentVideoId(youtubeConnection.streamId)
+      addDebugLog(`Conexão YouTube detectada - VideoID: ${youtubeConnection.streamId}`)
     } else {
       setCurrentConnectedUrl("")
+      setCurrentVideoId("")
     }
   }, [youtubeConnection])
 
   // Configurar o timer de atualização automática
   useEffect(() => {
-    if (isConnected && autoRefreshEnabled && refreshInterval > 0) {
-      addDebugLog(`Configurando atualização automática a cada ${refreshInterval} segundos`)
+    if (isConnected && autoRefreshEnabled && refreshInterval > 0 && currentVideoId) {
+      addDebugLog(
+        `Configurando atualização automática a cada ${refreshInterval} segundos para vídeo: ${currentVideoId}`,
+      )
 
       // Limpar timer existente
       if (refreshTimerRef.current) {
@@ -115,68 +122,54 @@ export default function ConnectYouTube() {
     } else if (refreshTimerRef.current) {
       clearInterval(refreshTimerRef.current)
     }
-  }, [isConnected, autoRefreshEnabled, refreshInterval])
+  }, [isConnected, autoRefreshEnabled, refreshInterval, currentVideoId])
 
-  // Função para extrair ID da transmissão da URL
-  const extractStreamId = (url: string): string | null => {
+  // Função para buscar comentários da API
+  const fetchCommentsFromApi = async (videoId: string, pageToken?: string, maxResults = 20) => {
+    addDebugLog(
+      `[API] Fazendo requisição - VideoID: ${videoId}, PageToken: ${pageToken || "null"}, MaxResults: ${maxResults}`,
+    )
+
+    setApiStats((prev) => ({
+      ...prev,
+      totalRequests: prev.totalRequests + 1,
+      lastRequestTime: new Date(),
+    }))
+
     try {
-      const parsedUrl = new URL(url)
-      let streamId = ""
+      const response = await youtubeApi.getComments(videoId, maxResults, pageToken)
 
-      if (parsedUrl.hostname.includes("youtube.com")) {
-        // Formato: https://www.youtube.com/watch?v=VIDEO_ID
-        streamId = parsedUrl.searchParams.get("v") || ""
-      } else if (parsedUrl.hostname.includes("youtu.be")) {
-        // Formato: https://youtu.be/VIDEO_ID
-        streamId = parsedUrl.pathname.substring(1)
+      addDebugLog(`[API] Resposta recebida - Success: ${response.success}, Comments: ${response.comments?.length || 0}`)
+
+      if (response.success) {
+        setApiStats((prev) => ({
+          ...prev,
+          successfulRequests: prev.successfulRequests + 1,
+        }))
+
+        return response
+      } else {
+        addDebugLog(`[API] Erro: ${response.error}`)
+        setApiStats((prev) => ({
+          ...prev,
+          failedRequests: prev.failedRequests + 1,
+        }))
+
+        throw new Error(response.error || "Erro desconhecido da API")
       }
+    } catch (error) {
+      addDebugLog(`[API] Exceção: ${error}`)
+      setApiStats((prev) => ({
+        ...prev,
+        failedRequests: prev.failedRequests + 1,
+      }))
 
-      if (!streamId) {
-        throw new Error("URL de transmissão inválida")
-      }
-
-      return streamId
-    } catch (err) {
-      return null
+      throw error
     }
   }
 
-  // Função para verificar se uma mensagem pertence à transmissão atual
-  const isMessageFromCurrentStream = (message: any): boolean => {
-    if (!youtubeConnection || !message.connectionId) return false
-    return message.connectionId === youtubeConnection.connectionId
-  }
-
-  // Função para limpar completamente todas as mensagens do YouTube
-  const purgeAllYouTubeMessages = () => {
-    addDebugLog("Limpando TODAS as mensagens do YouTube do sistema")
-
-    // Remover todas as mensagens do YouTube do estado
-    const allMessages = useWhatsAppStore.getState().messages
-    const nonYoutubeMessages = allMessages.filter((msg) => msg.platform !== "youtube")
-    useWhatsAppStore.setState({ messages: nonYoutubeMessages })
-
-    // Remover mensagens do YouTube que estão em exibição
-    const displayedMessages = useWhatsAppStore.getState().displayedMessages
-    const updatedDisplayedMessages = displayedMessages.filter((msg) => msg.platform !== "youtube")
-
-    // Se houver mensagens em exibição que foram removidas, atualizá-las
-    if (displayedMessages.length !== updatedDisplayedMessages.length) {
-      updatedDisplayedMessages.forEach((msg) => {
-        removeMessageFromDisplay(msg.id)
-      })
-    }
-
-    addDebugLog(`Removidas ${allMessages.length - nonYoutubeMessages.length} mensagens do YouTube`)
-    updateLastRefreshTime()
-
-    // Resetar o contador de comentários e o último ID
-    setCommentCounter(0)
-    setLastCommentId(null)
-  }
-
-  // Modificar a função connectToYouTube para garantir que todas as mensagens antigas sejam removidas
-  const connectToYouTube = () => {
+  // Conectar ao YouTube usando a API real
+  const connectToYouTube = async () => {
     if (!streamUrl) {
       setError("Por favor, insira a URL da transmissão ao vivo do YouTube")
       return
@@ -186,146 +179,101 @@ export default function ConnectYouTube() {
     setError(null)
 
     // Extrair o ID da transmissão da URL
-    const streamId = extractStreamId(streamUrl)
-    if (!streamId) {
+    const videoId = youtubeApi.extractVideoId(streamUrl)
+    if (!videoId) {
       setIsLoading(false)
       setError("URL de transmissão inválida. Use uma URL do YouTube válida.")
       return
     }
 
-    addDebugLog(`Iniciando conexão com nova transmissão: ${streamId}`)
+    addDebugLog(`[CONNECT] Iniciando conexão com vídeo: ${videoId}`)
 
-    // IMPORTANTE: Limpar TODAS as mensagens antigas do YouTube, independentemente da conexão
-    purgeAllYouTubeMessages()
+    // IMPORTANTE: Limpar COMPLETAMENTE o cache do YouTube
+    addDebugLog("[CONNECT] Limpando cache completo do YouTube")
+    purgeYouTubeCache()
 
-    // Se já estiver conectado, primeiro desconectar completamente
-    if (isConnected && youtubeConnection) {
-      addDebugLog(`Desconectando YouTube antes de nova conexão: ${youtubeConnection.connectionId}`)
-
-      // Remover a conexão existente
-      removeConnection("youtube")
-    }
+    // Resetar todos os estados
+    setNextPageToken(null)
+    setTotalCommentsLoaded(0)
+    setCurrentVideoId("")
+    setCurrentConnectedUrl("")
 
     // Gerar um ID único para esta conexão
-    const connectionId = `youtube-${streamId}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
-    addDebugLog(`Criando nova conexão YouTube - Stream ID: ${streamId}, Connection ID: ${connectionId}`)
+    const connectionId = `youtube-${videoId}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+    addDebugLog(`[CONNECT] Novo Connection ID: ${connectionId}`)
 
-    // Simulação de conexão bem-sucedida
-    setTimeout(() => {
-      // Adicionar nova conexão
-      addConnection({
-        platform: "youtube",
-        isConnected: true,
-        lastConnected: new Date().toISOString(),
-        accountName: "Canal de Demonstração",
-        accountId: `YT-${streamId}`,
-        streamId: streamId,
-        connectionId: connectionId,
-      })
+    try {
+      // Buscar comentários da API para o vídeo específico
+      addDebugLog(`[CONNECT] Buscando comentários da API para vídeo: ${videoId}`)
+      const response = await fetchCommentsFromApi(videoId, undefined, 20)
 
-      // Armazenar a URL atual
-      setCurrentConnectedUrl(streamId)
+      if (response.success) {
+        addDebugLog(`[CONNECT] API retornou ${response.comments.length} comentários para vídeo ${videoId}`)
 
-      // Adicionar ao histórico de URLs
-      const exists = urlHistory.some((item) => item.url === streamId)
-      if (!exists) {
-        setUrlHistory((prev) => [
-          {
-            url: streamId,
-            connectionId: connectionId,
-            timestamp: new Date().toISOString(),
-          },
-          ...prev,
-        ])
-      }
-
-      // Adicionar mensagens de exemplo do YouTube
-      const youtubeNames = [
-        "Fã do Canal",
-        "Criador de Conteúdo",
-        "YouTuber BR",
-        "Gamer Online",
-        "Tech Reviewer",
-        "Música Boa",
-        "Viajante Digital",
-        "Cozinha Fácil",
-      ]
-      const youtubeMessages = [
-        "Essa live está incrível! Parabéns pelo conteúdo!",
-        "Quando será o próximo evento?",
-        "Já deixei meu like e me inscrevi no canal!",
-        "Vocês poderiam fazer uma live sobre o tema X?",
-        "Estou compartilhando com todos os meus amigos!",
-        "De onde vocês estão transmitindo hoje?",
-        "Qual é a música de fundo?",
-        "Primeira vez assistindo, já virei fã!",
-      ]
-
-      // Adicionar várias mensagens para simular uma conversa ativa
-      const newMessages = []
-      for (let i = 0; i < 5; i++) {
-        const randomName = youtubeNames[Math.floor(Math.random() * youtubeNames.length)]
-        const randomMessage = youtubeMessages[Math.floor(Math.random() * youtubeMessages.length)]
-        const avatarSeed = Math.floor(Math.random() * 70)
-        const messageId = `yt-${connectionId}-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 9)}`
-
-        newMessages.push({
-          id: messageId,
-          sender: randomName,
-          senderAvatar: `https://i.pravatar.cc/150?img=${avatarSeed}`,
-          content: randomMessage,
-          timestamp: new Date(Date.now() - i * 60000).toISOString(), // Mensagens em intervalos de 1 minuto
-          isRead: false,
-          mediaType: null,
-          mediaUrl: null,
+        // Adicionar nova conexão
+        addConnection({
           platform: "youtube",
+          isConnected: true,
+          lastConnected: new Date().toISOString(),
+          accountName: `Transmissão ${videoId}`,
+          accountId: `YT-${videoId}`,
+          streamId: videoId,
           connectionId: connectionId,
-          streamId: streamId, // Adicionar streamId para facilitar filtragem
-          platformData: {
-            profileUrl: `https://youtube.com/user/${Math.floor(Math.random() * 10000)}`,
-            isVerified: Math.random() > 0.8,
-            channelName: randomName,
-          },
         })
+
+        // Armazenar a URL atual
+        setCurrentConnectedUrl(videoId)
+        setCurrentVideoId(videoId)
+
+        if (response.comments.length > 0) {
+          // Converter comentários da API para mensagens do sistema
+          const newMessages = youtubeApi.convertCommentsToMessages(response.comments, connectionId, videoId)
+
+          addDebugLog(`[CONNECT] Convertendo ${response.comments.length} comentários em mensagens`)
+
+          // Definir as novas mensagens (substituindo qualquer mensagem anterior)
+          setMessages(newMessages)
+
+          // Atualizar controles de paginação
+          setNextPageToken(response.pagination.nextPageToken || null)
+          setTotalCommentsLoaded(response.comments.length)
+        }
+
+        updateLastRefreshTime()
+        setLastRefreshTime(new Date())
+
+        setIsLoading(false)
+        toast({
+          title: "YouTube conectado com sucesso!",
+          description: `Conectado à transmissão: ${videoId}. ${response.comments.length} comentários carregados da API.`,
+        })
+      } else {
+        throw new Error(response.error || "Erro ao buscar comentários da API")
       }
-
-      // Atualizar o último ID de comentário
-      if (newMessages.length > 0) {
-        setLastCommentId(newMessages[0].id)
-      }
-
-      // Atualizar o contador de comentários
-      setCommentCounter(5)
-
-      addDebugLog(`Adicionando ${newMessages.length} novas mensagens para a conexão ${connectionId}`)
-
-      // Adicionar as novas mensagens ao estado
-      setMessages(newMessages)
-      updateLastRefreshTime()
-      setLastRefreshTime(new Date())
-
+    } catch (error) {
       setIsLoading(false)
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido"
+      setError(`Erro ao conectar: ${errorMessage}`)
+      addDebugLog(`[CONNECT] Erro: ${errorMessage}`)
+
       toast({
-        title: "YouTube conectado",
-        description: `Você está recebendo comentários da transmissão: ${streamId}`,
+        title: "Erro na conexão",
+        description: `Não foi possível conectar à transmissão ${videoId}: ${errorMessage}`,
+        variant: "destructive",
       })
-    }, 2000)
+    }
   }
 
   // Desconectar do YouTube
   const disconnectYouTube = () => {
-    addDebugLog("Iniciando desconexão do YouTube")
+    addDebugLog("[DISCONNECT] Iniciando desconexão do YouTube")
 
-    // IMPORTANTE: Limpar TODAS as mensagens do YouTube
-    purgeAllYouTubeMessages()
+    // Limpar COMPLETAMENTE o cache do YouTube
+    purgeYouTubeCache()
 
-    if (youtubeConnection?.connectionId) {
-      addDebugLog(`Desconectando YouTube - Connection ID: ${youtubeConnection.connectionId}`)
-    }
-
-    removeConnection("youtube")
     setStreamUrl("")
     setCurrentConnectedUrl("")
+    setCurrentVideoId("")
 
     // Limpar o timer de atualização automática
     if (refreshTimerRef.current) {
@@ -333,118 +281,177 @@ export default function ConnectYouTube() {
       refreshTimerRef.current = null
     }
 
+    // Resetar estados da API
+    setNextPageToken(null)
+    setTotalCommentsLoaded(0)
+
     toast({
       title: "YouTube desconectado",
       description: "Você não está mais recebendo comentários do YouTube.",
     })
   }
 
-  // Reconectar (limpar e conectar novamente)
-  const handleReconnect = () => {
-    if (!currentConnectedUrl || !youtubeConnection) return
+  // Atualizar mensagens manualmente usando a API real
+  const handleRefreshMessages = async () => {
+    if (!isConnected || !youtubeConnection || !currentVideoId) {
+      addDebugLog("[REFRESH] Não é possível atualizar: não conectado ou videoId ausente")
+      return
+    }
 
-    setIsLoading(true)
-    addDebugLog(`Iniciando reconexão do YouTube - URL atual: ${currentConnectedUrl}`)
+    addDebugLog(`[REFRESH] Atualizando mensagens para vídeo: ${currentVideoId}`)
+    setIsLoadingMore(true)
 
-    // IMPORTANTE: Limpar TODAS as mensagens do YouTube
-    purgeAllYouTubeMessages()
+    try {
+      // Buscar novos comentários da API para o vídeo específico atual
+      const response = await fetchCommentsFromApi(currentVideoId, undefined, 10)
 
-    // Remover a conexão existente
-    removeConnection("youtube")
+      if (response.success && response.comments.length > 0) {
+        addDebugLog(`[REFRESH] API retornou ${response.comments.length} comentários`)
 
-    // Gerar um novo ID de conexão
-    const newConnectionId = `youtube-${currentConnectedUrl}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
-    addDebugLog(`Novo Connection ID: ${newConnectionId}`)
+        // Converter comentários da API para mensagens do sistema
+        const newMessages = youtubeApi.convertCommentsToMessages(
+          response.comments,
+          youtubeConnection.connectionId,
+          currentVideoId,
+        )
 
-    // Esperar um pouco para garantir que tudo foi limpo
-    setTimeout(() => {
-      // Adicionar nova conexão com o mesmo streamId mas novo connectionId
-      addConnection({
-        platform: "youtube",
-        isConnected: true,
-        lastConnected: new Date().toISOString(),
-        accountName: "Canal de Demonstração",
-        accountId: `YT-${currentConnectedUrl}`,
-        streamId: currentConnectedUrl,
-        connectionId: newConnectionId,
-      })
+        // Filtrar apenas comentários que ainda não temos (baseado no ID do comentário da API)
+        const existingCommentIds = new Set(
+          messages
+            .filter((msg) => msg.platform === "youtube" && msg.connectionId === youtubeConnection.connectionId)
+            .map((msg) => msg.platformData?.commentId)
+            .filter(Boolean),
+        )
 
-      // Atualizar o histórico de URLs
-      setUrlHistory((prev) => [
-        {
-          url: currentConnectedUrl,
-          connectionId: newConnectionId,
-          timestamp: new Date().toISOString(),
-        },
-        ...prev.filter((item) => item.url !== currentConnectedUrl),
-      ])
+        const uniqueNewMessages = newMessages.filter(
+          (msg) => msg.platformData?.commentId && !existingCommentIds.has(msg.platformData.commentId),
+        )
 
-      // Adicionar novas mensagens simuladas
-      const youtubeNames = ["Novo Espectador", "Fã Recente", "Comentarista Ativo", "Visitante Regular", "Seguidor Fiel"]
-      const youtubeMessages = [
-        "Acabei de chegar na live! O que perdi?",
-        "Estou gostando muito do conteúdo de hoje!",
-        "Primeira vez assistindo, já me inscrevi no canal!",
-        "Vocês sempre trazem temas interessantes!",
-        "Compartilhei com meus amigos, eles vão adorar!",
-      ]
+        if (uniqueNewMessages.length > 0) {
+          addDebugLog(`[REFRESH] Adicionando ${uniqueNewMessages.length} novas mensagens únicas`)
 
-      // Adicionar várias mensagens para simular uma conversa ativa
-      const newMessages = []
-      for (let i = 0; i < 5; i++) {
-        const randomName = youtubeNames[Math.floor(Math.random() * youtubeNames.length)]
-        const randomMessage = youtubeMessages[Math.floor(Math.random() * youtubeMessages.length)]
-        const avatarSeed = Math.floor(Math.random() * 70)
-        const messageId = `yt-${newConnectionId}-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 9)}`
+          // Adicionar as novas mensagens ao estado
+          useWhatsAppStore.setState((state) => ({
+            messages: [...uniqueNewMessages, ...state.messages],
+          }))
 
-        newMessages.push({
-          id: messageId,
-          sender: randomName,
-          senderAvatar: `https://i.pravatar.cc/150?img=${avatarSeed}`,
-          content: randomMessage,
-          timestamp: new Date(Date.now() - i * 60000).toISOString(), // Mensagens em intervalos de 1 minuto
-          isRead: false,
-          mediaType: null,
-          mediaUrl: null,
-          platform: "youtube",
-          connectionId: newConnectionId,
-          streamId: currentConnectedUrl, // Adicionar streamId para facilitar filtragem
-          platformData: {
-            profileUrl: `https://youtube.com/user/${Math.floor(Math.random() * 10000)}`,
-            isVerified: Math.random() > 0.8,
-            channelName: randomName,
-          },
+          setTotalCommentsLoaded((prev) => prev + uniqueNewMessages.length)
+
+          toast({
+            title: "Mensagens atualizadas",
+            description: `${uniqueNewMessages.length} nova(s) mensagem(ns) carregada(s) da API.`,
+            duration: 2000,
+          })
+        } else {
+          addDebugLog("[REFRESH] Nenhum comentário novo encontrado")
+          toast({
+            title: "Nenhuma mensagem nova",
+            description: "Não há novos comentários disponíveis para esta transmissão.",
+            duration: 2000,
+          })
+        }
+      } else {
+        addDebugLog(
+          `[REFRESH] API não retornou comentários: success=${response.success}, count=${response.comments?.length || 0}`,
+        )
+        toast({
+          title: "Nenhuma mensagem nova",
+          description: "Não há novos comentários disponíveis para esta transmissão.",
+          duration: 2000,
         })
       }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido"
+      addDebugLog(`[REFRESH] Erro: ${errorMessage}`)
 
-      // Atualizar o último ID de comentário
-      if (newMessages.length > 0) {
-        setLastCommentId(newMessages[0].id)
-      }
-
-      // Atualizar o contador de comentários
-      setCommentCounter(5)
-
-      addDebugLog(`Adicionando ${newMessages.length} novas mensagens após reconexão`)
-
-      // Adicionar as novas mensagens ao estado
-      setMessages(newMessages)
+      toast({
+        title: "Erro ao atualizar",
+        description: `Erro ao buscar comentários: ${errorMessage}`,
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoadingMore(false)
       updateLastRefreshTime()
       setLastRefreshTime(new Date())
+    }
+  }
 
-      setIsLoading(false)
+  // Carregar mais comentários usando paginação
+  const loadMoreComments = async () => {
+    if (!isConnected || !youtubeConnection || !currentVideoId || !nextPageToken) return
+
+    addDebugLog(`[LOAD_MORE] Carregando mais comentários com token: ${nextPageToken}`)
+    setIsLoadingMore(true)
+
+    try {
+      const response = await fetchCommentsFromApi(currentVideoId, nextPageToken, 20)
+
+      if (response.success && response.comments.length > 0) {
+        const newMessages = youtubeApi.convertCommentsToMessages(
+          response.comments,
+          youtubeConnection.connectionId,
+          currentVideoId,
+        )
+
+        addDebugLog(`[LOAD_MORE] Carregando ${newMessages.length} comentários adicionais`)
+
+        // Adicionar as novas mensagens ao estado
+        useWhatsAppStore.setState((state) => ({
+          messages: [...state.messages, ...newMessages],
+        }))
+
+        // Atualizar controles de paginação
+        setNextPageToken(response.pagination.nextPageToken || null)
+        setTotalCommentsLoaded((prev) => prev + response.comments.length)
+
+        toast({
+          title: "Mais comentários carregados",
+          description: `${response.comments.length} comentários adicionais carregados.`,
+        })
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido"
+      addDebugLog(`[LOAD_MORE] Erro: ${errorMessage}`)
+
       toast({
-        title: "YouTube reconectado",
-        description: "Conexão renovada e novas mensagens carregadas.",
+        title: "Erro ao carregar mais",
+        description: errorMessage,
+        variant: "destructive",
       })
-    }, 1500)
+    } finally {
+      setIsLoadingMore(false)
+      updateLastRefreshTime()
+    }
+  }
+
+  // Reconectar (limpar e conectar novamente)
+  const handleReconnect = async () => {
+    if (!currentConnectedUrl) return
+
+    setIsLoading(true)
+    addDebugLog(`[RECONNECT] Iniciando reconexão - URL atual: ${currentConnectedUrl}`)
+
+    // Limpar COMPLETAMENTE o cache do YouTube
+    purgeYouTubeCache()
+
+    // Esperar um pouco para garantir que tudo foi limpo
+    setTimeout(async () => {
+      try {
+        // Definir a URL e conectar novamente
+        setStreamUrl(`https://www.youtube.com/watch?v=${currentConnectedUrl}`)
+        await connectToYouTube()
+      } catch (error) {
+        setIsLoading(false)
+        addDebugLog(`[RECONNECT] Erro: ${error}`)
+      }
+    }, 1000)
   }
 
   // Limpar mensagens do YouTube
   const clearYouTubeMessages = () => {
-    addDebugLog("Limpando mensagens do YouTube (exceto as em exibição)")
+    addDebugLog("[CLEAR] Limpando mensagens do YouTube (exceto as em exibição)")
 
-    // IMPORTANTE: Limpar TODAS as mensagens do YouTube, exceto as em exibição
+    // Limpar TODAS as mensagens do YouTube, exceto as em exibição
     const allMessages = useWhatsAppStore.getState().messages
     const displayedMessageIds = useWhatsAppStore.getState().displayedMessages.map((msg) => msg.id)
 
@@ -456,7 +463,11 @@ export default function ConnectYouTube() {
     useWhatsAppStore.setState({ messages: messagesToKeep })
     updateLastRefreshTime()
 
-    addDebugLog(`Mensagens antes: ${allMessages.length}, Mensagens após filtragem: ${messagesToKeep.length}`)
+    // Resetar contadores
+    setTotalCommentsLoaded(0)
+    setNextPageToken(null)
+
+    addDebugLog(`[CLEAR] Mensagens antes: ${allMessages.length}, Mensagens após filtragem: ${messagesToKeep.length}`)
 
     toast({
       title: "Mensagens do YouTube limpas",
@@ -464,132 +475,10 @@ export default function ConnectYouTube() {
     })
   }
 
-  // Limpar histórico de URLs
-  const clearUrlHistory = () => {
-    addDebugLog("Limpando histórico de URLs")
-
-    // Manter apenas a URL atual no histórico, se estiver conectado
-    if (currentConnectedUrl && youtubeConnection?.connectionId) {
-      setUrlHistory([
-        {
-          url: currentConnectedUrl,
-          connectionId: youtubeConnection.connectionId,
-          timestamp: new Date().toISOString(),
-        },
-      ])
-      toast({
-        title: "Histórico de URLs limpo",
-        description: "O histórico de URLs foi limpo, mantendo apenas a URL atual.",
-      })
-    } else {
-      setUrlHistory([])
-      toast({
-        title: "Histórico de URLs limpo",
-        description: "Todo o histórico de URLs foi removido.",
-      })
-    }
-  }
-
-  // Função para atualizar mensagens manualmente - MODIFICADA PARA SIMULAR NOVOS COMENTÁRIOS
-  const handleRefreshMessages = () => {
-    if (!isConnected || !youtubeConnection) return
-
-    addDebugLog("Atualizando mensagens manualmente")
-
-    // Gerar novas mensagens simuladas
-    const youtubeNames = [
-      "Espectador Atual",
-      "Novo Comentarista",
-      "Fã do Canal",
-      "Visitante",
-      "Super Fã",
-      "Comentarista Regular",
-      "Novo Inscrito",
-      "Espectador Fiel",
-    ]
-
-    // Mensagens mais variadas e realistas
-    const youtubeMessages = [
-      "Estou adorando o conteúdo!",
-      "Quando será a próxima live?",
-      "Já compartilhei com meus amigos!",
-      "Vocês poderiam falar sobre o tema X?",
-      "Primeira vez assistindo, muito bom!",
-      "Acabei de chegar, do que estão falando?",
-      "Esse assunto é muito interessante!",
-      "Vocês são os melhores nesse tema!",
-      "Estou aprendendo muito com vocês!",
-      "Qual é a música de fundo?",
-      "De onde vocês estão transmitindo hoje?",
-      "Já deixei meu like! 👍",
-      "Conteúdo de qualidade como sempre!",
-      "Vocês poderiam fazer um vídeo sobre X?",
-      "Estou acompanhando desde o início!",
-      "Ótima explicação sobre esse assunto!",
-    ]
-
-    // Adicionar novas mensagens simuladas - SEMPRE DIFERENTES DAS ANTERIORES
-    const newMessages = []
-    // Número variável de novos comentários (1-4) para parecer mais realista
-    const count = Math.floor(Math.random() * 4) + 1
-
-    // Incrementar o contador para simular novos comentários
-    const newCounter = commentCounter + count
-    setCommentCounter(newCounter)
-
-    for (let i = 0; i < count; i++) {
-      const randomName = youtubeNames[Math.floor(Math.random() * youtubeNames.length)]
-      const randomMessage = youtubeMessages[Math.floor(Math.random() * youtubeMessages.length)]
-      const avatarSeed = Math.floor(Math.random() * 70)
-      // Usar o contador para garantir IDs únicos e crescentes
-      const messageId = `yt-${youtubeConnection.connectionId}-${Date.now()}-${newCounter - i}-${Math.random().toString(36).substring(2, 9)}`
-
-      newMessages.push({
-        id: messageId,
-        sender: randomName,
-        senderAvatar: `https://i.pravatar.cc/150?img=${avatarSeed}`,
-        content: randomMessage,
-        timestamp: new Date().toISOString(),
-        isRead: false,
-        mediaType: null,
-        mediaUrl: null,
-        platform: "youtube",
-        connectionId: youtubeConnection.connectionId,
-        streamId: youtubeConnection.streamId, // Adicionar streamId para facilitar filtragem
-        platformData: {
-          profileUrl: `https://youtube.com/user/${Math.floor(Math.random() * 10000)}`,
-          isVerified: Math.random() > 0.8,
-          channelName: randomName,
-        },
-      })
-    }
-
-    // Atualizar o último ID de comentário
-    if (newMessages.length > 0) {
-      setLastCommentId(newMessages[0].id)
-    }
-
-    addDebugLog(`Adicionando ${count} novas mensagens na atualização manual`)
-
-    // Adicionar as novas mensagens ao estado - COLOCANDO NO INÍCIO para simular ordem cronológica inversa
-    useWhatsAppStore.setState((state) => ({
-      messages: [...newMessages, ...state.messages],
-    }))
-
-    updateLastRefreshTime()
-    setLastRefreshTime(new Date())
-
-    toast({
-      title: "Mensagens atualizadas",
-      description: `${count} nova(s) mensagem(ns) carregada(s).`,
-      duration: 2000,
-    })
-  }
-
   // Alternar modo de depuração
   const toggleDebugMode = () => {
     setDebugMode(!debugMode)
-    setShowDebugInfo(!debugMode) // Mostrar informações de depuração quando ativar o modo
+    setShowDebugInfo(!debugMode)
 
     toast({
       title: debugMode ? "Modo de depuração desativado" : "Modo de depuração ativado",
@@ -599,70 +488,32 @@ export default function ConnectYouTube() {
     })
   }
 
-  // Verificar e limpar mensagens de outras transmissões
-  const verifyAndCleanMessages = () => {
-    if (!youtubeConnection) return
+  // Função para limpar completamente o cache e reiniciar
+  const purgeAndRestart = () => {
+    addDebugLog("[PURGE] Limpando completamente o cache do YouTube")
 
-    addDebugLog("Verificando e limpando mensagens de outras transmissões")
+    // Limpar completamente o cache
+    purgeYouTubeCache()
 
-    const allMessages = useWhatsAppStore.getState().messages
-    const youtubeMessages = allMessages.filter((msg) => msg.platform === "youtube")
-    const currentConnectionMessages = youtubeMessages.filter(
-      (msg) => msg.connectionId === youtubeConnection.connectionId,
-    )
-    const otherConnectionMessages = youtubeMessages.filter((msg) => msg.connectionId !== youtubeConnection.connectionId)
-
-    addDebugLog(`Total de mensagens do YouTube: ${youtubeMessages.length}`)
-    addDebugLog(`Mensagens da conexão atual: ${currentConnectionMessages.length}`)
-    addDebugLog(`Mensagens de outras conexões: ${otherConnectionMessages.length}`)
-
-    if (otherConnectionMessages.length > 0) {
-      // Manter apenas mensagens da conexão atual e de outras plataformas
-      const messagesToKeep = allMessages.filter(
-        (msg) => msg.platform !== "youtube" || msg.connectionId === youtubeConnection.connectionId,
-      )
-
-      useWhatsAppStore.setState({ messages: messagesToKeep })
-      updateLastRefreshTime()
-
-      toast({
-        title: "Limpeza de cache realizada",
-        description: `Removidas ${otherConnectionMessages.length} mensagens de transmissões anteriores.`,
-      })
-    } else {
-      toast({
-        title: "Verificação concluída",
-        description: "Não foram encontradas mensagens de outras transmissões.",
-      })
-    }
-  }
-
-  // Limpar completamente o cache e reconectar
-  const purgeAndReconnect = () => {
-    if (!currentConnectedUrl) return
-
-    addDebugLog("Iniciando limpeza completa de cache e reconexão")
-
-    // Salvar a URL atual
-    const currentUrl = currentConnectedUrl
-
-    // Desconectar e limpar tudo
-    disconnectYouTube()
-
-    // Limpar histórico de URLs
-    setUrlHistory([])
-
-    // Limpar logs de depuração
+    // Resetar todos os estados locais
+    setStreamUrl("")
+    setCurrentConnectedUrl("")
+    setCurrentVideoId("")
+    setNextPageToken(null)
+    setTotalCommentsLoaded(0)
+    setError(null)
     setDebugLogs([])
 
-    // Esperar um pouco para garantir que tudo foi limpo
-    setTimeout(() => {
-      // Definir a URL e conectar novamente
-      setStreamUrl(currentUrl)
-      setTimeout(() => {
-        connectToYouTube()
-      }, 500)
-    }, 1000)
+    // Limpar timer
+    if (refreshTimerRef.current) {
+      clearInterval(refreshTimerRef.current)
+      refreshTimerRef.current = null
+    }
+
+    toast({
+      title: "Cache limpo",
+      description: "Todo o cache do YouTube foi limpo. Você pode conectar a uma nova transmissão.",
+    })
   }
 
   return (
@@ -685,9 +536,14 @@ export default function ConnectYouTube() {
             <Button variant="ghost" size="sm" onClick={toggleDebugMode} title="Alternar modo de depuração">
               <Bug className={`h-4 w-4 ${debugMode ? "text-green-500" : "text-gray-400"}`} />
             </Button>
+            <Button variant="ghost" size="sm" onClick={purgeAndRestart} title="Limpar cache completo">
+              <AlertTriangle className="h-4 w-4 text-orange-500" />
+            </Button>
           </div>
         </CardTitle>
-        <CardDescription>Receba comentários de uma transmissão ao vivo do YouTube</CardDescription>
+        <CardDescription>
+          Receba comentários reais de uma transmissão ao vivo do YouTube usando nossa API personalizada
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {isConnected ? (
@@ -696,7 +552,16 @@ export default function ConnectYouTube() {
               <CheckCircle size={48} />
             </div>
             <h3 className="text-xl font-medium mb-2">YouTube Live conectado</h3>
-            <p className="text-muted-foreground mb-2">Transmissão: {currentConnectedUrl}</p>
+            <div className="mb-2 flex items-center justify-center gap-2">
+              <p className="text-muted-foreground">Vídeo: {currentVideoId}</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => window.open(`https://www.youtube.com/watch?v=${currentVideoId}`, "_blank")}
+              >
+                <ExternalLink className="h-4 w-4" />
+              </Button>
+            </div>
             <p className="text-muted-foreground mb-2">
               {lastRefreshTime ? (
                 <>
@@ -708,6 +573,10 @@ export default function ConnectYouTube() {
               ) : (
                 "Aguardando primeira atualização..."
               )}
+            </p>
+            <p className="text-sm text-muted-foreground mb-4">
+              Comentários carregados: {totalCommentsLoaded}
+              {nextPageToken && " (Mais disponíveis)"}
             </p>
 
             <div className="mb-6 p-4 bg-gray-50 rounded-lg">
@@ -727,46 +596,54 @@ export default function ConnectYouTube() {
                   <Input
                     id="refresh-interval"
                     type="number"
-                    min="10"
+                    min="30"
                     max="300"
                     value={refreshInterval}
                     onChange={(e) => setRefreshInterval(Number.parseInt(e.target.value) || 60)}
                     className="w-24"
                   />
-                  <Button variant="outline" size="sm" onClick={handleRefreshMessages} className="ml-auto">
-                    <RotateCw className="h-4 w-4 mr-2" />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRefreshMessages}
+                    disabled={isLoadingMore}
+                    className="ml-auto bg-transparent"
+                  >
+                    {isLoadingMore ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <RotateCw className="h-4 w-4 mr-2" />
+                    )}
                     Atualizar agora
                   </Button>
                 </div>
               )}
             </div>
 
-            {urlHistory.length > 1 && (
-              <div className="mb-6 p-4 bg-amber-50 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-medium text-amber-800 flex items-center">
-                    <AlertCircle className="h-4 w-4 mr-2" />
-                    Histórico de URLs ({urlHistory.length})
-                  </h4>
-                  <Button variant="outline" size="sm" onClick={clearUrlHistory}>
-                    Limpar histórico
-                  </Button>
+            {/* Estatísticas da API */}
+            <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+              <h4 className="font-medium text-blue-800 mb-2">Estatísticas da API</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="text-blue-600">Total de requisições:</span>
+                  <div className="font-medium">{apiStats.totalRequests}</div>
                 </div>
-                <p className="text-sm text-amber-700 mb-2">
-                  Você tem várias URLs no histórico. Isso pode causar problemas de cache.
-                </p>
-                <div className="max-h-24 overflow-y-auto text-xs text-amber-600">
-                  {urlHistory.map((item, index) => (
-                    <div key={index} className="py-1 border-b border-amber-100 last:border-0">
-                      {item.url === currentConnectedUrl ? <strong>{item.url} (atual)</strong> : item.url}
-                      <span className="ml-2 text-xs text-gray-500">
-                        {new Date(item.timestamp).toLocaleTimeString()}
-                      </span>
-                    </div>
-                  ))}
+                <div>
+                  <span className="text-green-600">Sucessos:</span>
+                  <div className="font-medium">{apiStats.successfulRequests}</div>
+                </div>
+                <div>
+                  <span className="text-red-600">Falhas:</span>
+                  <div className="font-medium">{apiStats.failedRequests}</div>
+                </div>
+                <div>
+                  <span className="text-gray-600">Última requisição:</span>
+                  <div className="font-medium text-xs">
+                    {apiStats.lastRequestTime ? apiStats.lastRequestTime.toLocaleTimeString() : "N/A"}
+                  </div>
                 </div>
               </div>
-            )}
+            </div>
 
             {showDebugInfo && (
               <div className="mb-6 p-4 bg-gray-50 rounded-lg text-left">
@@ -779,7 +656,13 @@ export default function ConnectYouTube() {
                           <strong>Connection ID:</strong> {youtubeConnection?.connectionId || "N/A"}
                         </div>
                         <div>
-                          <strong>Stream ID:</strong> {youtubeConnection?.streamId || "N/A"}
+                          <strong>Video ID:</strong> {currentVideoId || "N/A"}
+                        </div>
+                        <div>
+                          <strong>Stream URL:</strong> {streamUrl || "N/A"}
+                        </div>
+                        <div>
+                          <strong>Next Page Token:</strong> {nextPageToken || "N/A"}
                         </div>
                         <div>
                           <strong>Total de mensagens:</strong> {messages.filter((m) => m.platform === "youtube").length}
@@ -789,23 +672,7 @@ export default function ConnectYouTube() {
                           {messages.filter((m) => m.connectionId === youtubeConnection?.connectionId).length}
                         </div>
                         <div>
-                          <strong>Mensagens de outras conexões:</strong>{" "}
-                          {
-                            messages.filter(
-                              (m) => m.platform === "youtube" && m.connectionId !== youtubeConnection?.connectionId,
-                            ).length
-                          }
-                        </div>
-                        <div>
-                          <strong>Último ID de comentário:</strong> {lastCommentId || "N/A"}
-                        </div>
-                        <div>
-                          <strong>Contador de comentários:</strong> {commentCounter}
-                        </div>
-                        <div>
-                          <Button variant="outline" size="sm" onClick={verifyAndCleanMessages} className="mt-2">
-                            Verificar e Limpar Mensagens
-                          </Button>
+                          <strong>API URL:</strong> https://eo3ys3z8yqseayi.m.pipedream.net
                         </div>
                       </div>
                     </AccordionContent>
@@ -841,7 +708,6 @@ export default function ConnectYouTube() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  // Desconectar completamente antes de permitir nova conexão
                   disconnectYouTube()
                   setStreamUrl("")
                   setError(null)
@@ -863,6 +729,19 @@ export default function ConnectYouTube() {
                   </>
                 )}
               </Button>
+
+              {nextPageToken && (
+                <Button variant="outline" onClick={loadMoreComments} disabled={isLoadingMore}>
+                  {isLoadingMore ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Carregando...
+                    </>
+                  ) : (
+                    "Carregar Mais"
+                  )}
+                </Button>
+              )}
 
               <Button variant="outline" onClick={clearYouTubeMessages}>
                 <Trash2 className="mr-2 h-4 w-4" />
@@ -888,7 +767,7 @@ export default function ConnectYouTube() {
                 <Label htmlFor="stream-url">URL da Transmissão ao Vivo</Label>
                 <Input
                   id="stream-url"
-                  placeholder="https://www.youtube.com/watch?v=..."
+                  placeholder="https://www.youtube.com/watch?v=etOVnZELmSw"
                   value={streamUrl}
                   onChange={(e) => setStreamUrl(e.target.value)}
                 />
@@ -901,7 +780,7 @@ export default function ConnectYouTube() {
                 {isLoading ? (
                   <Button disabled className="w-full">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Conectando...
+                    Conectando à API...
                   </Button>
                 ) : (
                   <Button onClick={connectToYouTube} className="w-full">
@@ -910,11 +789,31 @@ export default function ConnectYouTube() {
                 )}
               </div>
 
-              <div className="p-3 bg-amber-50 text-amber-700 rounded-md text-sm mt-4">
-                <AlertCircle className="inline-block mr-2 h-4 w-4" />
+              <div className="p-3 bg-green-50 text-green-700 rounded-md text-sm mt-4">
+                <CheckCircle className="inline-block mr-2 h-4 w-4" />
                 <span>
-                  Modo de simulação: Esta é uma demonstração. Em uma implementação real, seria necessário usar a API do
-                  YouTube Data para acessar os comentários da transmissão.
+                  <strong>API Real Integrada:</strong> Esta integração usa sua API personalizada para buscar comentários
+                  reais das transmissões do YouTube.
+                </span>
+              </div>
+
+              <div className="p-3 bg-blue-50 text-blue-700 rounded-md text-sm">
+                <strong>Recursos disponíveis:</strong>
+                <ul className="mt-2 space-y-1 text-xs">
+                  <li>• Comentários reais em tempo real</li>
+                  <li>• Fotos de perfil dos usuários</li>
+                  <li>• Informações de canal e verificação</li>
+                  <li>• Paginação para carregar mais comentários</li>
+                  <li>• Atualização automática configurável</li>
+                  <li>• Cache limpo a cada nova conexão</li>
+                </ul>
+              </div>
+
+              <div className="p-3 bg-orange-50 text-orange-700 rounded-md text-sm">
+                <AlertTriangle className="inline-block mr-2 h-4 w-4" />
+                <span>
+                  <strong>Teste com sua URL:</strong> Cole a URL https://youtu.be/etOVnZELmSw ou qualquer outra
+                  transmissão ao vivo para testar a integração real.
                 </span>
               </div>
             </div>
