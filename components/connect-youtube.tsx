@@ -849,8 +849,8 @@ export default function ConnectYouTube() {
               <div className="p-3 bg-green-50 text-green-700 rounded-md text-sm mt-4">
                 <CheckCircle className="inline-block mr-2 h-4 w-4" />
                 <span>
-                  <strong>API Real Integrada:</strong> Esta integração usa sua API personalizada para buscar comentários
-                  reais das transmissões do YouTube.
+                  <strong>API Real Integrada:</strong> Esta integração usa sua API personalizada ({youtubeApi.apiUrl}) para buscar comentários
+                  reais dos vídeos do YouTube.
                 </span>
               </div>
 
@@ -865,14 +865,15 @@ export default function ConnectYouTube() {
                   <li>• Cache limpo a cada nova conexão</li>
                   <li>• Teste de conectividade automático</li>
                   <li>• Fallback para requisições GET</li>
+                  <li>• Integração com API real (não simulação)</li>
                 </ul>
               </div>
 
               <div className="p-3 bg-orange-50 text-orange-700 rounded-md text-sm">
                 <AlertTriangle className="inline-block mr-2 h-4 w-4" />
                 <span>
-                  <strong>Teste com sua URL:</strong> Cole qualquer URL do YouTube (como https://youtu.be/dQw4w9WgXcQ) 
-                  para testar a integração real com sua API.
+                  <strong>Teste com vídeos reais:</strong> Cole qualquer URL do YouTube para buscar comentários reais
+                  usando sua API personalizada.
                 </span>
               </div>
 

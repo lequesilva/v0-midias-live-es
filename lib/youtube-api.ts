@@ -132,12 +132,13 @@ export class YouTubeApiClient {
       }
 
       const url = `${this.apiUrl}?${params.toString()}`
-      console.log(`[YouTubeAPI] Fazendo requisição GET para: ${url}`)
+      console.log(`[YouTubeAPI] Fazendo requisição GET para API real: ${url}`)
 
       const response = await fetch(url, {
         method: "GET",
         headers: {
           "Accept": "application/json",
+          "User-Agent": "MidiasLiveES/1.0",
         },
       })
 
@@ -150,7 +151,7 @@ export class YouTubeApiClient {
       }
 
       const responseText = await response.text()
-      console.log(`[YouTubeAPI] Resposta GET bruta:`, responseText)
+      console.log(`[YouTubeAPI] Resposta GET bruta (primeiros 500 chars):`, responseText.substring(0, 500))
 
       const data = JSON.parse(responseText)
 
@@ -158,10 +159,10 @@ export class YouTubeApiClient {
         throw new Error(data.error || "Erro desconhecido da API")
       }
 
-      console.log(`[YouTubeAPI] Requisição GET bem-sucedida, ${data.comments?.length || 0} comentários recebidos`)
+      console.log(`[YouTubeAPI] Requisição GET para API real bem-sucedida, ${data.comments?.length || 0} comentários recebidos`)
       return data
     } catch (error) {
-      console.error("Erro ao buscar comentários via GET:", error)
+      console.error("[YouTubeAPI] Erro ao buscar comentários via GET da API real:", error)
       throw error
     }
   }
