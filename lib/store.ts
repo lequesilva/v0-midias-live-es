@@ -640,6 +640,17 @@ export const useWhatsAppStore = create<WhatsAppState>()(
       refreshMessages: () => {
         const state = get()
 
+        // Para YouTube, não fazer refresh automático - apenas manual via API
+        const youtubeConnection = state.connections.find(conn => conn.platform === "youtube" && conn.isConnected)
+        if (youtubeConnection) {
+          // Se só tiver YouTube conectado, não fazer refresh automático
+          const otherConnections = state.connections.filter(conn => conn.platform !== "youtube" && conn.isConnected)
+          if (otherConnections.length === 0) {
+            addDebugLog("[REFRESH] Apenas YouTube conectado - não fazendo refresh automático")
+            return
+          }
+        }
+
         const displayedMessageIds = state.displayedMessages.map((msg) => msg.id)
         const filteredMessages = state.messages.filter((msg) => displayedMessageIds.includes(msg.id))
 
@@ -648,6 +659,7 @@ export const useWhatsAppStore = create<WhatsAppState>()(
           lastRefreshTime: Date.now(),
         })
 
+        // Só fazer refresh para plataformas que não sejam YouTube
         const platforms = state.connections
           .filter((conn) => conn.isConnected && conn.platform !== "youtube")
           .map((conn) => conn.platform)
