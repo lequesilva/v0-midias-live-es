@@ -82,13 +82,6 @@ export default function ConnectYouTube() {
   useEffect(() => {
     addDebugLog("Componente YouTube inicializado - limpando cache e parando simulações")
     purgeYouTubeCache()
-
-    // IMPORTANTE: Parar qualquer simulação de mensagens para YouTube
-    const state = useWhatsAppStore.getState()
-    if (state.connections.some((conn) => conn.platform === "youtube")) {
-      addDebugLog("Removendo conexões YouTube antigas que podem estar gerando simulações")
-      state.removeConnection("youtube")
-    }
   }, [])
 
   // Atualizar o estado da URL atual quando a conexão mudar
