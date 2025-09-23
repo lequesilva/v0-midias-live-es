@@ -729,7 +729,7 @@ export default function ConnectYouTube() {
                           {messages.filter((m) => m.connectionId === youtubeConnection?.connectionId).length}
                         </div>
                         <div>
-                          <strong>API URL:</strong> https://eo3ys3z8yqseayi.m.pipedream.net
+                          <strong>API URL:</strong> {youtubeApi.apiUrl}
                         </div>
                       </div>
                     </AccordionContent>
@@ -849,7 +849,7 @@ export default function ConnectYouTube() {
               <div className="p-3 bg-green-50 text-green-700 rounded-md text-sm mt-4">
                 <CheckCircle className="inline-block mr-2 h-4 w-4" />
                 <span>
-                  <strong>API Real Integrada:</strong> Esta integração usa sua API personalizada ({youtubeApi.apiUrl}) para buscar comentários
+                  <strong>API Real Integrada:</strong> Esta integração usa sua API personalizada hospedada no Render ({youtubeApi.apiUrl}) para buscar comentários
                   reais dos vídeos do YouTube.
                 </span>
               </div>
@@ -864,23 +864,23 @@ export default function ConnectYouTube() {
                   <li>• Atualização automática configurável</li>
                   <li>• Cache limpo a cada nova conexão</li>
                   <li>• Teste de conectividade automático</li>
-                  <li>• Fallback para requisições GET</li>
-                  <li>• Integração com API real (não simulação)</li>
+                  <li>• Integração com API hospedada no Render</li>
+                  <li>• Método POST conforme especificação</li>
                 </ul>
               </div>
 
               <div className="p-3 bg-orange-50 text-orange-700 rounded-md text-sm">
                 <AlertTriangle className="inline-block mr-2 h-4 w-4" />
                 <span>
-                  <strong>Teste com vídeos reais:</strong> Cole qualquer URL do YouTube para buscar comentários reais
-                  usando sua API personalizada.
+                  <strong>API Personalizada:</strong> Cole qualquer URL do YouTube para buscar comentários reais
+                  usando sua API hospedada no Render.
                 </span>
               </div>
 
               <div className="p-3 bg-gray-50 text-gray-700 rounded-md text-sm">
-                <strong>Sua API:</strong> {youtubeApi.apiUrl || "https://eo3ys3z8yqseayi.m.pipedream.net"}
+                <strong>API Endpoint:</strong> {youtubeApi.apiUrl}
                 <br />
-                <span className="text-xs">A integração testará automaticamente a conectividade antes de conectar.</span>
+                <span className="text-xs">Método POST • Content-Type: application/json • Hospedada no Render</span>
               </div>
             </div>
           </div>
