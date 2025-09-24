@@ -194,7 +194,7 @@ export default function ConnectYouTube() {
     const connectionTest = await youtubeApi.testConnection()
     if (!connectionTest.success) {
       setIsLoading(false)
-      setError(`Erro de conectividade com a API: ${connectionTest.error}`)
+      setError(`Erro de conectividade com a API hospedada no Render: ${connectionTest.error || 'Verifique se a API está online'}`)
       addDebugLog(`[CONNECT] Teste de conectividade falhou: ${connectionTest.error}`)
       return
     }
@@ -849,7 +849,7 @@ export default function ConnectYouTube() {
               <div className="p-3 bg-green-50 text-green-700 rounded-md text-sm mt-4">
                 <CheckCircle className="inline-block mr-2 h-4 w-4" />
                 <span>
-                  <strong>API Real Integrada:</strong> Esta integração usa sua API personalizada hospedada no Render ({youtubeApi.apiUrl}) para buscar comentários
+                  <strong>API Hospedada no Render:</strong> Esta integração usa sua API personalizada hospedada no Render ({youtubeApi.apiUrl}) para buscar comentários
                   reais dos vídeos do YouTube.
                 </span>
               </div>
@@ -864,23 +864,15 @@ export default function ConnectYouTube() {
                   <li>• Atualização automática configurável</li>
                   <li>• Cache limpo a cada nova conexão</li>
                   <li>• Teste de conectividade automático</li>
-                  <li>• Integração com API hospedada no Render</li>
+                  <li>• Timeout de 30 segundos para requisições</li>
                   <li>• Método POST conforme especificação</li>
                 </ul>
-              </div>
-
-              <div className="p-3 bg-orange-50 text-orange-700 rounded-md text-sm">
-                <AlertTriangle className="inline-block mr-2 h-4 w-4" />
-                <span>
-                  <strong>API Personalizada:</strong> Cole qualquer URL do YouTube para buscar comentários reais
-                  usando sua API hospedada no Render.
-                </span>
               </div>
 
               <div className="p-3 bg-gray-50 text-gray-700 rounded-md text-sm">
                 <strong>API Endpoint:</strong> {youtubeApi.apiUrl}
                 <br />
-                <span className="text-xs">Método POST • Content-Type: application/json • Hospedada no Render</span>
+                <span className="text-xs">Método POST • Content-Type: application/json • Timeout: 30s • Hospedada no Render</span>
               </div>
             </div>
           </div>
