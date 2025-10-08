@@ -6,32 +6,42 @@ class WhatsAppClientManager {
   private qrCode: string | null = null;
   private isReady: boolean = false;
   private isAuthenticated: boolean = false;
+  private isInitializing: boolean = false;
   private listeners: Map<string, Set<Function>> = new Map();
+  private initializationError: string | null = null;
 
   constructor() {
-    this.initializeClient();
   }
 
-  private initializeClient() {
-    this.client = new Client({
-      authStrategy: new LocalAuth({
-        dataPath: '.wwebjs_auth'
-      }),
-      puppeteer: {
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu'
-        ]
-      }
-    });
+  private createClient() {
+    try {
+      this.client = new Client({
+        authStrategy: new LocalAuth({
+          dataPath: '.wwebjs_auth'
+        }),
+        puppeteer: {
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--single-process',
+            '--disable-extensions'
+          ]
+        }
+      });
 
-    this.setupEventHandlers();
+      this.setupEventHandlers();
+      return true;
+    } catch (error: any) {
+      console.error('Error creating WhatsApp client:', error);
+      this.initializationError = error.message || 'Failed to create client';
+      return false;
+    }
   }
 
   private setupEventHandlers() {
@@ -75,8 +85,37 @@ class WhatsAppClientManager {
   }
 
   public async initialize(): Promise<void> {
-    if (!this.client.pupBrowser) {
-      await this.client.initialize();
+    if (this.isInitializing) {
+      throw new Error('Client is already initializing');
+    }
+
+    if (this.isReady) {
+      return;
+    }
+
+    this.isInitializing = true;
+    this.initializationError = null;
+
+    try {
+      if (!this.client) {
+        const created = this.createClient();
+        if (!created) {
+          throw new Error(this.initializationError || 'Failed to create client');
+        }
+      }
+
+      if (!this.client.pupBrowser) {
+        console.log('Initializing WhatsApp client...');
+        await this.client.initialize();
+      }
+    } catch (error: any) {
+      console.error('Error initializing WhatsApp client:', error);
+      this.initializationError = error.message || 'Initialization failed';
+      this.isInitializing = false;
+      this.emit('error', { error: this.initializationError });
+      throw error;
+    } finally {
+      this.isInitializing = false;
     }
   }
 
@@ -85,25 +124,41 @@ class WhatsAppClientManager {
       isReady: this.isReady,
       isAuthenticated: this.isAuthenticated,
       qrCode: this.qrCode,
-      hasClient: !!this.client
+      hasClient: !!this.client,
+      isInitializing: this.isInitializing,
+      error: this.initializationError
     };
   }
 
   public async logout(): Promise<void> {
-    if (this.client) {
-      await this.client.logout();
+    try {
+      if (this.client && this.client.pupBrowser) {
+        await this.client.logout();
+      }
+    } catch (error) {
+      console.error('Error during logout:', error);
+    } finally {
       this.isReady = false;
       this.isAuthenticated = false;
       this.qrCode = null;
+      this.initializationError = null;
     }
   }
 
   public async destroy(): Promise<void> {
-    if (this.client) {
-      await this.client.destroy();
+    try {
+      if (this.client && this.client.pupBrowser) {
+        await this.client.destroy();
+      }
+    } catch (error) {
+      console.error('Error during destroy:', error);
+    } finally {
+      this.client = null;
       this.isReady = false;
       this.isAuthenticated = false;
       this.qrCode = null;
+      this.isInitializing = false;
+      this.initializationError = null;
     }
   }
 

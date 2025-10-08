@@ -117,11 +117,22 @@ export function WhatsAppQRManager() {
             variant: "destructive",
           })
           break
+
+        case 'error':
+          setStatus('error')
+          setErrorMessage(data.error || 'Erro desconhecido')
+          setIsLoading(false)
+          toast({
+            title: "Erro",
+            description: data.error || "Ocorreu um erro na conexão",
+            variant: "destructive",
+          })
+          break
       }
     }
 
-    eventSource.onerror = () => {
-      console.error('EventSource error')
+    eventSource.onerror = (err) => {
+      console.error('EventSource error:', err)
       eventSource.close()
     }
   }
@@ -138,23 +149,27 @@ export function WhatsAppQRManager() {
         body: JSON.stringify({ action: 'initialize' })
       })
 
-      if (!response.ok) {
-        throw new Error('Failed to initialize')
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        console.error('Initialization failed:', data)
+        throw new Error(data.error || 'Failed to initialize')
       }
 
       connectEventSource()
 
       toast({
         title: "Inicializando...",
-        description: "Aguarde a geração do QR Code",
+        description: "Aguarde a geração do QR Code (pode levar alguns minutos)",
       })
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Connection error:', error)
       setStatus('error')
-      setErrorMessage('Erro ao inicializar conexão')
+      setErrorMessage(error.message || 'Erro ao inicializar conexão')
       setIsLoading(false)
       toast({
-        title: "Erro",
-        description: "Não foi possível inicializar a conexão",
+        title: "Erro na Inicialização",
+        description: error.message || "Não foi possível inicializar a conexão. Verifique o console para mais detalhes.",
         variant: "destructive",
       })
     }
@@ -324,9 +339,20 @@ export function WhatsAppQRManager() {
 
         {status === 'error' && (
           <div className="text-center space-y-4">
-            <div className="flex items-center justify-center space-x-2 text-destructive">
-              <AlertCircle className="h-8 w-8" />
-              <p className="font-medium">{errorMessage || 'Erro na conexão'}</p>
+            <div className="flex flex-col items-center space-y-4">
+              <div className="flex items-center space-x-2 text-destructive">
+                <AlertCircle className="h-8 w-8" />
+                <p className="font-medium">{errorMessage || 'Erro na conexão'}</p>
+              </div>
+              {errorMessage && (
+                <div className="w-full p-4 bg-destructive/10 rounded-md text-sm text-left">
+                  <p className="font-medium mb-2">Detalhes do erro:</p>
+                  <p className="text-muted-foreground">{errorMessage}</p>
+                  <p className="text-muted-foreground mt-2 text-xs">
+                    Verifique o console do navegador (F12) para mais informações.
+                  </p>
+                </div>
+              )}
             </div>
             <Button onClick={handleConnect} disabled={isLoading}>
               <RefreshCw className="mr-2 h-4 w-4" />

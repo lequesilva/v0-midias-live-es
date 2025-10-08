@@ -22,8 +22,20 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'initialize':
-        await whatsappClientManager.initialize();
-        return NextResponse.json({ success: true, message: 'Initializing...' });
+        try {
+          await whatsappClientManager.initialize();
+          return NextResponse.json({ success: true, message: 'Initializing...' });
+        } catch (initError: any) {
+          console.error('Initialization error:', initError);
+          return NextResponse.json(
+            {
+              success: false,
+              error: initError.message || 'Failed to initialize',
+              details: initError.stack
+            },
+            { status: 500 }
+          );
+        }
 
       case 'logout':
         await whatsappClientManager.logout();
@@ -51,8 +63,12 @@ export async function POST(request: NextRequest) {
         );
     }
   } catch (error: any) {
+    console.error('API error:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to process request' },
+      {
+        error: error.message || 'Failed to process request',
+        details: error.stack
+      },
       { status: 500 }
     );
   }
