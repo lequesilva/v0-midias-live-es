@@ -1,66 +1,51 @@
-import { NextRequest } from 'next/server';
+import { NextResponse } from "next/server"
+import { whatsappManager } from "@/lib/whatsapp-manager"
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const dynamic = "force-dynamic"
+export const runtime = "nodejs"
 
-export async function GET(request: NextRequest) {
-  const encoder = new TextEncoder();
+export async function GET() {
+  try {
+    console.log("[API /whatsapp/status] Verificando status")
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      const { whatsappClientManager } = await import('@/lib/whatsapp-client');
+    const status = whatsappManager.getStatus()
+    const qrCode = whatsappManager.getQRCode()
+    const isAvailable = whatsappManager.isAvailable()
 
-      const sendEvent = (data: any) => {
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify(data)}\n\n`)
-        );
-      };
+    console.log("[API /whatsapp/status] Status:", status)
+    console.log("[API /whatsapp/status] QR Code presente:", !!qrCode)
+    console.log("[API /whatsapp/status] Disponível:", isAvailable)
 
-      const onQR = (qrCode: string) => {
-        sendEvent({ type: 'qr', qrCode });
-      };
+    return NextResponse.json(
+      {
+        success: true,
+        status,
+        qrCode,
+        isAvailable,
+      },
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      },
+    )
+  } catch (error) {
+    console.error("[API /whatsapp/status] Erro:", error)
 
-      const onReady = (data: any) => {
-        sendEvent({ type: 'ready', ...data });
-      };
-
-      const onAuthenticated = (data: any) => {
-        sendEvent({ type: 'authenticated', ...data });
-      };
-
-      const onAuthFailure = (data: any) => {
-        sendEvent({ type: 'auth_failure', ...data });
-      };
-
-      const onDisconnected = (data: any) => {
-        sendEvent({ type: 'disconnected', ...data });
-      };
-
-      whatsappClientManager.on('qr', onQR);
-      whatsappClientManager.on('ready', onReady);
-      whatsappClientManager.on('authenticated', onAuthenticated);
-      whatsappClientManager.on('auth_failure', onAuthFailure);
-      whatsappClientManager.on('disconnected', onDisconnected);
-
-      const status = await whatsappClientManager.getStatus();
-      sendEvent({ type: 'status', ...status });
-
-      request.signal.addEventListener('abort', () => {
-        whatsappClientManager.off('qr', onQR);
-        whatsappClientManager.off('ready', onReady);
-        whatsappClientManager.off('authenticated', onAuthenticated);
-        whatsappClientManager.off('auth_failure', onAuthFailure);
-        whatsappClientManager.off('disconnected', onDisconnected);
-        controller.close();
-      });
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    },
-  });
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Erro ao verificar status",
+        status: "DISCONNECTED",
+      },
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    )
+  }
 }

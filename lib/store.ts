@@ -1,12 +1,9 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
-// Tipos
-// Atualizar o tipo PlatformType para incluir facebook e instagram
 export type PlatformType = "whatsapp" | "phone" | "youtube" | "facebook" | "instagram"
 export type MessageType = "normal" | "prayer" | "testimony"
 
-// Atualizar a interface Program para incluir datas de início e fim
 export interface Program {
   id: string
   name: string
@@ -29,15 +26,15 @@ export interface Message {
   platform: PlatformType
   messageType?: MessageType
   programId?: string
-  connectionId: string // ID único da conexão (obrigatório)
-  streamId?: string // Para YouTube Live
+  connectionId: string
+  streamId?: string
   platformData?: {
     profileUrl?: string
     isVerified?: boolean
     likes?: number
     channelName?: string
     postId?: string
-    commentId?: string // ID original do comentário da API
+    commentId?: string
     channelId?: string
   }
   phoneData?: {
@@ -53,9 +50,9 @@ export interface PlatformConnection {
   lastConnected?: string
   accountName?: string
   accountId?: string
-  streamId?: string // Para YouTube Live
-  pageId?: string // Para Facebook
-  connectionId: string // ID único da conexão (obrigatório)
+  streamId?: string
+  pageId?: string
+  connectionId: string
 }
 
 export interface DisplayConfig {
@@ -93,7 +90,7 @@ export interface MessageHistory {
   timestamp: string
   displayTimestamp: string
   programName?: string
-  connectionId: string // ID único da conexão (obrigatório)
+  connectionId: string
 }
 
 export interface PlatformStats {
@@ -105,17 +102,16 @@ interface WhatsAppState {
   connections: PlatformConnection[]
   messages: Message[]
   selectedMessage: Message | null
-  displayedMessages: Message[] // Mensagens que foram enviadas para exibição
-  currentDisplayIndex: number // Índice da mensagem atualmente exibida
+  displayedMessages: Message[]
+  currentDisplayIndex: number
   displayConfig: DisplayConfig
   savedLayouts: SavedLayout[]
   activePlatformFilter: PlatformType | "all"
   lastRefreshTime: number
   messageHistory: MessageHistory[]
   programs: Program[]
-  debugMode: boolean // Novo: modo de depuração para logs
+  debugMode: boolean
 
-  // Ações
   addConnection: (connection: PlatformConnection) => void
   removeConnection: (platform: PlatformType) => void
   updateConnection: (platform: PlatformType, data: Partial<PlatformConnection>) => void
@@ -151,27 +147,18 @@ interface WhatsAppState {
   }) => void
   refreshMessages: () => void
   clearMessages: () => void
-
-  // Funções para gerenciamento de mensagens por conexão
   clearConnectionMessages: (platform: PlatformType, connectionId: string) => void
   getConnectionMessages: (connectionId: string) => Message[]
   removeAllConnectionMessages: (connectionId: string) => void
   setDebugMode: (enabled: boolean) => void
-
-  // Gerenciamento de programas
   addProgram: (program: Omit<Program, "id">) => void
   updateProgram: (id: string, data: Partial<Omit<Program, "id">>) => void
   deleteProgram: (id: string) => void
   getProgram: (id: string) => Program | undefined
-
-  // Adicionar função para obter estatísticas de mensagens por programa
   getMessageStatsByProgram: (programId: string) => PlatformStats[]
-
-  // Nova função para limpar completamente o cache do YouTube
   purgeYouTubeCache: () => void
 }
 
-// Função auxiliar para log de depuração
 const debugLog = (enabled: boolean, ...args: any[]) => {
   if (enabled) {
     console.log("[DEBUG]", ...args)
@@ -201,7 +188,7 @@ export const useWhatsAppStore = create<WhatsAppState>()(
         programName: "",
         showPlatformIcon: true,
         showPlatformName: false,
-        autoRefreshInterval: 10, // em segundos
+        autoRefreshInterval: 10,
       },
       savedLayouts: [],
       activePlatformFilter: "all",
@@ -212,32 +199,18 @@ export const useWhatsAppStore = create<WhatsAppState>()(
 
       setDebugMode: (enabled) => set({ debugMode: enabled }),
 
-      // Nova função para limpar completamente o cache do YouTube
       purgeYouTubeCache: () => {
         const state = get()
         debugLog(state.debugMode, "Limpando COMPLETAMENTE o cache do YouTube")
 
         set((state) => {
-          // Remover TODAS as mensagens do YouTube
           const nonYoutubeMessages = state.messages.filter((msg) => msg.platform !== "youtube")
-
-          // Remover TODAS as mensagens do YouTube em exibição
           const nonYoutubeDisplayedMessages = state.displayedMessages.filter((msg) => msg.platform !== "youtube")
-
-          // Remover TODAS as conexões do YouTube
           const nonYoutubeConnections = state.connections.filter((conn) => conn.platform !== "youtube")
 
           debugLog(
             state.debugMode,
             `Removidas ${state.messages.length - nonYoutubeMessages.length} mensagens do YouTube`,
-          )
-          debugLog(
-            state.debugMode,
-            `Removidas ${state.displayedMessages.length - nonYoutubeDisplayedMessages.length} mensagens em exibição do YouTube`,
-          )
-          debugLog(
-            state.debugMode,
-            `Removidas ${state.connections.length - nonYoutubeConnections.length} conexões do YouTube`,
           )
 
           return {
@@ -252,16 +225,13 @@ export const useWhatsAppStore = create<WhatsAppState>()(
 
       addConnection: (connection) =>
         set((state) => {
-          // Garantir que a conexão tenha um ID único
           if (!connection.connectionId) {
             connection.connectionId = `${connection.platform}-${connection.streamId || connection.pageId || connection.accountId || Date.now()}-${Math.random().toString(36).substring(2, 9)}`
           }
 
           debugLog(state.debugMode, "Adicionando conexão:", connection)
 
-          // Para YouTube, sempre remover conexões anteriores completamente
           if (connection.platform === "youtube") {
-            // Limpar completamente o cache do YouTube antes de adicionar nova conexão
             const nonYoutubeMessages = state.messages.filter((msg) => msg.platform !== "youtube")
             const nonYoutubeDisplayedMessages = state.displayedMessages.filter((msg) => msg.platform !== "youtube")
             const nonYoutubeConnections = state.connections.filter((conn) => conn.platform !== "youtube")
@@ -276,24 +246,18 @@ export const useWhatsAppStore = create<WhatsAppState>()(
             }
           }
 
-          // Para outras plataformas, verificar se já existe uma conexão
           const existingIndex = state.connections.findIndex((c) => c.platform === connection.platform)
 
           if (existingIndex >= 0) {
-            // Antes de atualizar, remover todas as mensagens da conexão antiga
             const oldConnection = state.connections[existingIndex]
             if (oldConnection.connectionId !== connection.connectionId) {
               debugLog(state.debugMode, "Removendo mensagens da conexão antiga:", oldConnection.connectionId)
 
-              // Remover mensagens da conexão antiga
               const filteredMessages = state.messages.filter((msg) => msg.connectionId !== oldConnection.connectionId)
-
-              // Remover mensagens da conexão antiga que estão em exibição
               const filteredDisplayedMessages = state.displayedMessages.filter(
                 (msg) => msg.connectionId !== oldConnection.connectionId,
               )
 
-              // Atualizar conexões
               const updatedConnections = [...state.connections]
               updatedConnections[existingIndex] = connection
 
@@ -304,13 +268,11 @@ export const useWhatsAppStore = create<WhatsAppState>()(
                 currentDisplayIndex: filteredDisplayedMessages.length > 0 ? 0 : 0,
               }
             } else {
-              // Mesma conexão, apenas atualizar
               const updatedConnections = [...state.connections]
               updatedConnections[existingIndex] = connection
               return { connections: updatedConnections }
             }
           } else {
-            // Adicionar nova conexão
             return { connections: [...state.connections, connection] }
           }
         }),
@@ -319,17 +281,14 @@ export const useWhatsAppStore = create<WhatsAppState>()(
         const state = get()
         debugLog(state.debugMode, `Removendo conexão da plataforma: ${platform}`)
 
-        // Para YouTube, usar a função de limpeza completa
         if (platform === "youtube") {
           state.purgeYouTubeCache()
           return
         }
 
-        // Encontrar a conexão a ser removida
         const connectionToRemove = state.connections.find((c) => c.platform === platform)
 
         if (connectionToRemove) {
-          // Remover todas as mensagens desta conexão
           if (connectionToRemove.connectionId) {
             state.removeAllConnectionMessages(connectionToRemove.connectionId)
           }
@@ -358,12 +317,11 @@ export const useWhatsAppStore = create<WhatsAppState>()(
 
       addMessage: (message) =>
         set((state) => {
-          // Garantir que a mensagem tenha um connectionId
           if (!message.connectionId) {
             const connection = state.connections.find((conn) => conn.platform === message.platform)
             if (!connection) {
               debugLog(state.debugMode, "Tentativa de adicionar mensagem sem conexão:", message)
-              return {} // Não adicionar mensagem sem conexão
+              return {}
             }
             message.connectionId = connection.connectionId
           }
@@ -414,12 +372,10 @@ export const useWhatsAppStore = create<WhatsAppState>()(
           const existingIndex = state.savedLayouts.findIndex((layout) => layout.name === name)
 
           if (existingIndex >= 0) {
-            // Atualizar layout existente
             const updatedLayouts = [...state.savedLayouts]
             updatedLayouts[existingIndex] = { name, config }
             return { savedLayouts: updatedLayouts }
           } else {
-            // Adicionar novo layout
             return { savedLayouts: [...state.savedLayouts, { name, config }] }
           }
         }),
@@ -481,7 +437,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
         const history = get().messageHistory
         const stats: Record<string, number> = {}
 
-        // Contar mensagens por plataforma
         history.forEach((entry) => {
           if (!stats[entry.platform]) {
             stats[entry.platform] = 0
@@ -489,7 +444,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
           stats[entry.platform]++
         })
 
-        // Converter para array de PlatformStats
         return Object.entries(stats).map(([platform, count]) => ({
           platform: platform as PlatformType,
           count,
@@ -498,22 +452,18 @@ export const useWhatsAppStore = create<WhatsAppState>()(
 
       sendMessageToDisplay: (message) => {
         const state = get()
-        // Verificar se a mensagem já está na lista de exibição
         const exists = state.displayedMessages.some((msg) => msg.id === message.id)
 
-        // Adicionar ao histórico
         state.addToMessageHistory(message)
 
         if (exists) {
-          // Atualizar a mensagem existente
           set({
             displayedMessages: state.displayedMessages.map((msg) => (msg.id === message.id ? message : msg)),
           })
         } else {
-          // Adicionar a nova mensagem no início da lista
           set({
             displayedMessages: [message, ...state.displayedMessages],
-            currentDisplayIndex: 0, // Resetar para a primeira mensagem
+            currentDisplayIndex: 0,
           })
         }
       },
@@ -640,17 +590,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
       refreshMessages: () => {
         const state = get()
 
-        // Para YouTube, não fazer refresh automático - apenas manual via API
-        const youtubeConnection = state.connections.find(conn => conn.platform === "youtube" && conn.isConnected)
-        if (youtubeConnection) {
-          // Se só tiver YouTube conectado, não fazer refresh automático
-          const otherConnections = state.connections.filter(conn => conn.platform !== "youtube" && conn.isConnected)
-          if (otherConnections.length === 0) {
-            addDebugLog("[REFRESH] Apenas YouTube conectado - não fazendo refresh automático")
-            return
-          }
-        }
-
         const displayedMessageIds = state.displayedMessages.map((msg) => msg.id)
         const filteredMessages = state.messages.filter((msg) => displayedMessageIds.includes(msg.id))
 
@@ -659,7 +598,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
           lastRefreshTime: Date.now(),
         })
 
-        // Só fazer refresh para plataformas que não sejam YouTube
         const platforms = state.connections
           .filter((conn) => conn.isConnected && conn.platform !== "youtube")
           .map((conn) => conn.platform)
@@ -733,12 +671,8 @@ export const useWhatsAppStore = create<WhatsAppState>()(
 
         set((state) => {
           debugLog(state.debugMode, "Limpando mensagens...")
-          debugLog(state.debugMode, "Mensagens antes:", state.messages.length)
-          debugLog(state.debugMode, "Mensagens em exibição:", displayedMessageIds.length)
 
           const filteredMessages = state.messages.filter((msg) => displayedMessageIds.includes(msg.id))
-
-          debugLog(state.debugMode, "Mensagens após filtragem:", filteredMessages.length)
 
           const updatedConfig = {
             ...state.displayConfig,
@@ -751,17 +685,10 @@ export const useWhatsAppStore = create<WhatsAppState>()(
             displayConfig: updatedConfig,
           }
         })
-
-        setTimeout(() => {
-          set({
-            lastRefreshTime: Date.now(),
-          })
-        }, 100)
       },
 
       clearConnectionMessages: (platform: PlatformType, connectionId: string) => {
         const state = get()
-        debugLog(state.debugMode, `Limpando mensagens da conexão: ${connectionId} (plataforma: ${platform})`)
 
         const displayedMessageIds = state.displayedMessages.map((msg) => msg.id)
 
@@ -785,7 +712,6 @@ export const useWhatsAppStore = create<WhatsAppState>()(
 
       removeAllConnectionMessages: (connectionId: string) => {
         const state = get()
-        debugLog(state.debugMode, `Removendo TODAS as mensagens da conexão: ${connectionId}`)
 
         set((state) => {
           const filteredMessages = state.messages.filter((msg) => msg.connectionId !== connectionId)

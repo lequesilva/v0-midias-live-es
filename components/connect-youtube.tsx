@@ -82,6 +82,13 @@ export default function ConnectYouTube() {
   useEffect(() => {
     addDebugLog("Componente YouTube inicializado - limpando cache e parando simulações")
     purgeYouTubeCache()
+
+    // IMPORTANTE: Parar qualquer simulação de mensagens para YouTube
+    const state = useWhatsAppStore.getState()
+    if (state.connections.some((conn) => conn.platform === "youtube")) {
+      addDebugLog("Removendo conexões YouTube antigas que podem estar gerando simulações")
+      state.removeConnection("youtube")
+    }
   }, [])
 
   // Atualizar o estado da URL atual quando a conexão mudar
@@ -189,17 +196,6 @@ export default function ConnectYouTube() {
     addDebugLog(`[CONNECT] Iniciando conexão com vídeo: ${videoId}`)
     addDebugLog(`[CONNECT] URL original: ${streamUrl}`)
 
-    // Primeiro, testar a conectividade com a API
-    addDebugLog(`[CONNECT] Testando conectividade com a API...`)
-    const connectionTest = await youtubeApi.testConnection()
-    if (!connectionTest.success) {
-      setIsLoading(false)
-      setError(`Erro de conectividade com a API hospedada no Render: ${connectionTest.error || 'Verifique se a API está online'}`)
-      addDebugLog(`[CONNECT] Teste de conectividade falhou: ${connectionTest.error}`)
-      return
-    }
-    addDebugLog(`[CONNECT] Teste de conectividade bem-sucedido`)
-
     // IMPORTANTE: Limpar COMPLETAMENTE o cache do YouTube
     addDebugLog("[CONNECT] Limpando cache completo do YouTube")
     purgeYouTubeCache()
@@ -245,11 +241,6 @@ export default function ConnectYouTube() {
         // VERIFICAÇÃO CRÍTICA: Confirmar que estamos recebendo dados da API
         if (response.comments.length === 0) {
           addDebugLog(`[CONNECT] AVISO: API retornou 0 comentários para vídeo ${videoId}`)
-          toast({
-            title: "Aviso",
-            description: `A API retornou 0 comentários para o vídeo ${videoId}. Isso pode ser normal se o vídeo não tiver comentários ou se os comentários estiverem desabilitados.`,
-            variant: "default",
-          })
         } else {
           addDebugLog(`[CONNECT] Primeiro comentário da API:`, {
             id: response.comments[0].id,
@@ -729,7 +720,7 @@ export default function ConnectYouTube() {
                           {messages.filter((m) => m.connectionId === youtubeConnection?.connectionId).length}
                         </div>
                         <div>
-                          <strong>API URL:</strong> {youtubeApi.apiUrl}
+                          <strong>API URL:</strong> https://eo3ys3z8yqseayi.m.pipedream.net
                         </div>
                       </div>
                     </AccordionContent>
@@ -849,8 +840,8 @@ export default function ConnectYouTube() {
               <div className="p-3 bg-green-50 text-green-700 rounded-md text-sm mt-4">
                 <CheckCircle className="inline-block mr-2 h-4 w-4" />
                 <span>
-                  <strong>API Hospedada no Render:</strong> Esta integração usa sua API personalizada hospedada no Render ({youtubeApi.apiUrl}) para buscar comentários
-                  reais dos vídeos do YouTube.
+                  <strong>API Real Integrada:</strong> Esta integração usa sua API personalizada para buscar comentários
+                  reais das transmissões do YouTube.
                 </span>
               </div>
 
@@ -863,16 +854,15 @@ export default function ConnectYouTube() {
                   <li>• Paginação para carregar mais comentários</li>
                   <li>• Atualização automática configurável</li>
                   <li>• Cache limpo a cada nova conexão</li>
-                  <li>• Teste de conectividade automático</li>
-                  <li>• Timeout de 30 segundos para requisições</li>
-                  <li>• Método POST conforme especificação</li>
                 </ul>
               </div>
 
-              <div className="p-3 bg-gray-50 text-gray-700 rounded-md text-sm">
-                <strong>API Endpoint:</strong> {youtubeApi.apiUrl}
-                <br />
-                <span className="text-xs">Método POST • Content-Type: application/json • Timeout: 30s • Hospedada no Render</span>
+              <div className="p-3 bg-orange-50 text-orange-700 rounded-md text-sm">
+                <AlertTriangle className="inline-block mr-2 h-4 w-4" />
+                <span>
+                  <strong>Teste com sua URL:</strong> Cole a URL https://youtu.be/etOVnZELmSw ou qualquer outra
+                  transmissão ao vivo para testar a integração real.
+                </span>
               </div>
             </div>
           </div>

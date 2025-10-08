@@ -6,12 +6,8 @@ import Image from "next/image"
 
 export default function HeaderInfo() {
   const [currentTime, setCurrentTime] = useState(new Date())
-  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    // Set mounted to true after component mounts on client
-    setMounted(true)
-    
     // Atualizar a hora a cada segundo
     const timer = setInterval(() => {
       setCurrentTime(new Date())
@@ -56,12 +52,8 @@ export default function HeaderInfo() {
 
           <div className="flex items-center">
             <div className="text-right">
-              <p className="text-xs text-gray-600 capitalize">
-                {mounted ? formattedDate : "Carregando..."}
-              </p>
-              <p className="text-sm font-medium text-gray-800">
-                {mounted ? formattedTime : "--:--:--"}
-              </p>
+              <p className="text-xs text-gray-600 capitalize">{formattedDate}</p>
+              <p className="text-sm font-medium text-gray-800">{formattedTime}</p>
             </div>
           </div>
         </div>
