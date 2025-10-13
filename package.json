@@ -36,7 +36,8 @@
     "tailwindcss-animate": "^1.0.7",
     "use-sync-external-store": "latest",
     "whatsapp-web.js": "^1.26.0",
-    "zustand": "latest"
+    "zustand": "latest",
+    "puppeteer": "^23.11.1"
   },
   "devDependencies": {
     "@types/node": "^22",
@@ -46,7 +47,6 @@
     "eslint": "^9",
     "eslint-config-next": "^15.1.2",
     "postcss": "^8.5",
-    "puppeteer": "^23.11.1",
     "tailwindcss": "^3.4.17",
     "typescript": "^5"
   }
