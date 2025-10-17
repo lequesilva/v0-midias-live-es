@@ -1,216 +1,351 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useWhatsAppStore } from "@/lib/store"
-import { Loader2, CheckCircle, AlertCircle } from "lucide-react"
+import { Loader2, CheckCircle, AlertCircle, RefreshCw, LogOut, Download, Terminal } from "lucide-react"
 import Image from "next/image"
 import { useToast } from "@/hooks/use-toast"
+import { safeFetch } from "@/lib/api-helpers"
+
+type WhatsAppStatus = "INITIALIZING" | "QR_PENDING" | "READY" | "DISCONNECTED" | "AUTH_FAILURE" | "NOT_AVAILABLE"
 
 export default function ConnectWhatsApp() {
-  const { connections, addConnection, removeConnection, addMessage, messages, setMessages } = useWhatsAppStore()
+  const { connections, addConnection, removeConnection, messages, setMessages } = useWhatsAppStore()
   const [qrCode, setQrCode] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [status, setStatus] = useState<WhatsAppStatus>("DISCONNECTED")
   const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
 
-  // Verificar se o WhatsApp já está conectado
   const whatsappConnection = connections.find((conn) => conn.platform === "whatsapp")
   const isConnected = whatsappConnection?.isConnected || false
 
-  // Gerar QR Code
-  const generateQRCode = () => {
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | null = null
+
+    const checkStatus = async () => {
+      try {
+        console.log("[ConnectWhatsApp] Verificando status")
+        const data = await safeFetch("/api/whatsapp/status")
+
+        console.log("[ConnectWhatsApp] Status recebido:", data)
+
+        if (data.success) {
+          const newStatus = data.status as WhatsAppStatus
+          setStatus(newStatus)
+
+          if (data.qrCode) {
+            setQrCode(data.qrCode)
+          } else {
+            setQrCode(null)
+          }
+
+          if (newStatus === "READY" && !isConnected) {
+            addConnection({
+              platform: "whatsapp",
+              isConnected: true,
+              lastConnected: new Date().toISOString(),
+              accountName: "Meu WhatsApp",
+              accountId: "whatsapp-session",
+              connectionId: `whatsapp-${Date.now()}`,
+            })
+
+            toast({
+              title: "WhatsApp conectado",
+              description: "Sessão ativa e pronta para enviar mensagens.",
+            })
+          }
+
+          if ((newStatus === "DISCONNECTED" || newStatus === "AUTH_FAILURE") && isConnected) {
+            removeConnection("whatsapp")
+            toast({
+              title: "WhatsApp desconectado",
+              description: "A conexão foi perdida.",
+              variant: "destructive",
+            })
+          }
+
+          if (newStatus !== "NOT_AVAILABLE") {
+            setError(null)
+          }
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Erro desconhecido"
+        console.error("[ConnectWhatsApp] Erro ao verificar status:", errorMessage)
+
+        if (!errorMessage.includes("Erro de conexão")) {
+          setError(errorMessage)
+        }
+      }
+    }
+
+    const interval = isConnected ? 10000 : 2000
+    checkStatus()
+    intervalId = setInterval(checkStatus, interval)
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId)
+      }
+    }
+  }, [isConnected, addConnection, removeConnection, toast])
+
+  const startConnection = async () => {
     setIsLoading(true)
     setError(null)
 
-    // Simulação de API para gerar QR Code
-    setTimeout(() => {
-      // Usando um QR code que indica que é uma simulação
-      setQrCode("https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=SIMULACAO-WHATSLIVE-APP")
-      setIsLoading(false)
-
-      // Adicionar uma mensagem de aviso sobre a simulação
-      toast({
-        title: "Modo de Simulação",
-        description:
-          "Este é um QR code de simulação. Para uma integração real, seria necessário usar a API oficial do WhatsApp Business.",
-        duration: 5000,
-      })
-    }, 2000)
-  }
-
-  // Atualize a função simulateConnection para garantir que a conexão seja estabelecida corretamente
-  const simulateConnection = () => {
-    setIsLoading(true)
-
-    // Se já estiver conectado, primeiro desconectar
-    if (isConnected) {
-      // Remover a conexão existente
-      removeConnection("whatsapp")
-
-      // Remover mensagens antigas do WhatsApp
-      const filteredMessages = messages.filter((msg) => msg.platform !== "whatsapp")
-      setMessages(filteredMessages)
-    }
-
-    // Simulação de conexão bem-sucedida
-    setTimeout(() => {
-      addConnection({
-        platform: "whatsapp",
-        isConnected: true,
-        lastConnected: new Date().toISOString(),
-        accountName: "Meu WhatsApp",
-        accountId: "5511999999999",
+    try {
+      console.log("[ConnectWhatsApp] Iniciando conexão")
+      const data = await safeFetch("/api/whatsapp/init", {
+        method: "POST",
       })
 
-      // Nomes e mensagens mais realistas
-      const whatsappNames = [
-        "Ana Silva",
-        "Carlos Oliveira",
-        "Mariana Santos",
-        "Pedro Costa",
-        "Juliana Lima",
-        "Rafael Souza",
-        "Fernanda Alves",
-        "Bruno Pereira",
-        "Luciana Mendes",
-        "Gustavo Rocha",
-        "Camila Dias",
-        "Diego Cardoso",
-      ]
-      const whatsappMessages = [
-        "Olá! Estou adorando a transmissão de hoje!",
-        "Quando será o próximo evento?",
-        "Parabéns pelo trabalho! Vocês são incríveis.",
-        "Essa é minha primeira vez aqui, muito legal!",
-        "Vocês poderiam falar sobre o tema X na próxima vez?",
-        "Estou compartilhando com todos os meus amigos!",
-        "De onde vocês estão transmitindo hoje?",
-        "Qual é a música de fundo?",
-      ]
+      console.log("[ConnectWhatsApp] Resposta da inicialização:", data)
 
-      // Adicionar várias mensagens para simular uma conversa ativa
-      for (let i = 0; i < 5; i++) {
-        const randomName = whatsappNames[Math.floor(Math.random() * whatsappNames.length)]
-        const randomMessage = whatsappMessages[Math.floor(Math.random() * whatsappMessages.length)]
-        const avatarSeed = Math.floor(Math.random() * 70)
-
-        addMessage({
-          id: `whatsapp-${Date.now()}-${i}`,
-          sender: randomName,
-          senderAvatar: `https://i.pravatar.cc/150?img=${avatarSeed}`,
-          content: randomMessage,
-          timestamp: new Date(Date.now() - i * 60000).toISOString(), // Mensagens em intervalos de 1 minuto
-          isRead: false,
-          mediaType: null,
-          mediaUrl: null,
-          platform: "whatsapp",
+      if (data.success) {
+        toast({
+          title: "Iniciando conexão",
+          description: "Aguarde o QR Code ser gerado...",
+        })
+      } else {
+        const errorMsg = data.error || "Erro ao iniciar conexão"
+        setError(errorMsg)
+        toast({
+          title: "Erro ao iniciar",
+          description: errorMsg,
+          variant: "destructive",
         })
       }
-
-      setIsLoading(false)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido"
+      console.error("[ConnectWhatsApp] Erro ao iniciar:", errorMessage)
+      setError(errorMessage)
       toast({
-        title: "WhatsApp conectado",
-        description: "Você está recebendo mensagens do WhatsApp.",
+        title: "Erro ao iniciar conexão",
+        description: errorMessage,
+        variant: "destructive",
       })
-    }, 3000)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  // Desconectar
-  const disconnect = () => {
-    removeConnection("whatsapp")
+  const disconnect = async () => {
+    setIsLoading(true)
+    setError(null)
 
-    // Remover mensagens do WhatsApp
-    const filteredMessages = messages.filter((msg) => msg.platform !== "whatsapp")
-    setMessages(filteredMessages)
+    try {
+      console.log("[ConnectWhatsApp] Desconectando")
+      const data = await safeFetch("/api/whatsapp/disconnect", {
+        method: "POST",
+      })
 
-    setQrCode(null)
+      console.log("[ConnectWhatsApp] Resposta da desconexão:", data)
 
-    toast({
-      title: "WhatsApp desconectado",
-      description: "Você não está mais recebendo mensagens do WhatsApp.",
-    })
+      if (data.success) {
+        removeConnection("whatsapp")
+        const filteredMessages = messages.filter((msg) => msg.platform !== "whatsapp")
+        setMessages(filteredMessages)
+        setQrCode(null)
+        setStatus("DISCONNECTED")
+
+        toast({
+          title: "Desconectado",
+          description: "WhatsApp desconectado com sucesso.",
+        })
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido"
+      console.error("[ConnectWhatsApp] Erro ao desconectar:", errorMessage)
+      toast({
+        title: "Erro ao desconectar",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const reconnect = async () => {
+    await disconnect()
+    setTimeout(() => {
+      startConnection()
+    }, 1000)
+  }
+
+  const renderStatusBadge = () => {
+    const statusConfig = {
+      INITIALIZING: { label: "Inicializando...", color: "bg-yellow-100 text-yellow-800" },
+      QR_PENDING: { label: "Aguardando escaneamento", color: "bg-blue-100 text-blue-800" },
+      READY: { label: "Conectado", color: "bg-green-100 text-green-800" },
+      DISCONNECTED: { label: "Desconectado", color: "bg-gray-100 text-gray-800" },
+      AUTH_FAILURE: { label: "Falha na autenticação", color: "bg-red-100 text-red-800" },
+      NOT_AVAILABLE: { label: "Não disponível", color: "bg-orange-100 text-orange-800" },
+    }
+
+    const config = statusConfig[status]
+
+    return (
+      <div className="mb-4">
+        <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${config.color}`}>
+          {config.label}
+        </span>
+      </div>
+    )
+  }
+
+  if (status === "NOT_AVAILABLE") {
+    return (
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle>WhatsApp não disponível</CardTitle>
+          <CardDescription>As dependências necessárias não estão instaladas</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col items-center">
+          {renderStatusBadge()}
+
+          <div className="text-center w-full">
+            <div className="mb-4 p-4 bg-orange-50 text-orange-800 rounded-md text-left">
+              <div className="flex items-start mb-3">
+                <Download className="mr-2 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold mb-2">Passo 1: Instalar dependências</p>
+                  <p className="text-sm mb-2">Execute o seguinte comando no terminal:</p>
+                </div>
+              </div>
+              <div className="bg-gray-900 text-gray-100 p-3 rounded font-mono text-xs mb-4 flex items-center">
+                <Terminal className="mr-2 h-4 w-4 flex-shrink-0" />
+                <code>npm install whatsapp-web.js qrcode puppeteer</code>
+              </div>
+
+              <div className="flex items-start">
+                <RefreshCw className="mr-2 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold mb-2">Passo 2: Reiniciar o servidor</p>
+                  <p className="text-sm mb-2">Após instalar, reinicie o servidor Next.js:</p>
+                </div>
+              </div>
+              <div className="bg-gray-900 text-gray-100 p-3 rounded font-mono text-xs flex items-center">
+                <Terminal className="mr-2 h-4 w-4 flex-shrink-0" />
+                <code>npm run dev</code>
+              </div>
+            </div>
+
+            <Button onClick={startConnection} className="w-full" disabled={isLoading}>
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Verificar Novamente
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
     <Card className="w-full">
       <CardHeader>
         <CardTitle>Conectar ao WhatsApp</CardTitle>
-        <CardDescription>Escaneie o QR Code com seu WhatsApp para conectar sua conta</CardDescription>
+        <CardDescription>Escaneie o QR Code com seu WhatsApp para conectar</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col items-center">
-        {isConnected ? (
+        {renderStatusBadge()}
+
+        {status === "READY" ? (
           <div className="text-center">
             <div className="flex items-center justify-center mb-4 text-green-500">
               <CheckCircle size={48} />
             </div>
             <h3 className="text-xl font-medium mb-4">WhatsApp conectado com sucesso!</h3>
+            <p className="text-muted-foreground mb-6">Sua sessão está ativa e pronta para enviar mensagens.</p>
+            <div className="flex gap-4 justify-center">
+              <Button variant="outline" onClick={reconnect} disabled={isLoading}>
+                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                Reconectar
+              </Button>
+              <Button variant="destructive" onClick={disconnect} disabled={isLoading}>
+                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
+                Desconectar
+              </Button>
+            </div>
+          </div>
+        ) : status === "QR_PENDING" && qrCode ? (
+          <div className="text-center">
+            <div className="mb-6 p-4 bg-white inline-block rounded-md shadow-md">
+              <Image
+                src={qrCode || "/placeholder.svg"}
+                alt="QR Code para WhatsApp"
+                width={300}
+                height={300}
+                className="rounded-sm"
+                priority
+              />
+            </div>
+            <div className="mb-4 p-3 bg-blue-50 text-blue-700 rounded-md text-sm">
+              <AlertCircle className="inline-block mr-2 h-4 w-4" />
+              <span>Escaneie este QR Code com seu WhatsApp para conectar</span>
+            </div>
             <p className="text-muted-foreground mb-6">
-              Você já pode gerenciar mensagens e configurar sua tela de exibição.
+              Abra WhatsApp &gt; Configurações &gt; Dispositivos conectados &gt; Conectar dispositivo
             </p>
-            <Button variant="destructive" onClick={disconnect}>
-              Desconectar
+            <Button variant="outline" onClick={reconnect} disabled={isLoading}>
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Gerar Novo QR Code
+            </Button>
+          </div>
+        ) : status === "AUTH_FAILURE" ? (
+          <div className="text-center w-full">
+            <div className="mb-4 p-4 bg-red-50 text-red-600 rounded-md">
+              <div className="flex items-start mb-3">
+                <AlertCircle className="mr-2 mt-0.5 flex-shrink-0" />
+                <div className="text-left">
+                  <p className="font-semibold mb-1">Falha na autenticação</p>
+                  <p className="text-sm">O WhatsApp não conseguiu se conectar. Possíveis causas:</p>
+                  <ul className="text-sm mt-2 space-y-1 list-disc list-inside">
+                    <li>QR Code expirou</li>
+                    <li>WhatsApp no celular está desconectado</li>
+                    <li>Erro no servidor</li>
+                  </ul>
+                </div>
+              </div>
+              {error && (
+                <div className="mt-2 p-2 bg-red-100 rounded text-xs text-left">
+                  <strong>Detalhes:</strong> {error}
+                </div>
+              )}
+            </div>
+            <Button onClick={reconnect} disabled={isLoading} className="w-full">
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Tentar Novamente
             </Button>
           </div>
         ) : (
-          <>
-            {qrCode ? (
-              <div className="text-center">
-                <div className="mb-6 p-4 bg-white inline-block rounded-md shadow-md">
-                  <Image
-                    src={qrCode || "/placeholder.svg"}
-                    alt="QR Code para WhatsApp"
-                    width={300}
-                    height={300}
-                    className="rounded-sm"
-                    priority
-                  />
+          <div className="text-center w-full">
+            {error && (
+              <div className="mb-4 p-4 bg-red-50 text-red-600 rounded-md flex items-start text-left">
+                <AlertCircle className="mr-2 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold mb-1">Erro ao conectar</p>
+                  <p className="text-sm">{error}</p>
                 </div>
-                <div className="mb-4 p-3 bg-amber-50 text-amber-700 rounded-md text-sm">
-                  <AlertCircle className="inline-block mr-2 h-4 w-4" />
-                  <span>
-                    Este é um QR code de simulação. Em uma implementação real, seria gerado pela API oficial do WhatsApp
-                    Business.
-                  </span>
-                </div>
-                <p className="text-muted-foreground mb-6">
-                  Abra o WhatsApp no seu celular, vá em Configurações &gt; WhatsApp Web/Desktop e escaneie o QR Code
-                  acima.
-                </p>
-                {isLoading ? (
-                  <Button disabled>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Conectando...
-                  </Button>
-                ) : (
-                  <Button onClick={simulateConnection}>Simular Conexão</Button>
-                )}
-              </div>
-            ) : (
-              <div className="text-center w-full">
-                {error && (
-                  <div className="mb-4 p-4 bg-red-50 text-red-600 rounded-md flex items-center">
-                    <AlertCircle className="mr-2" />
-                    <span>{error}</span>
-                  </div>
-                )}
-                <p className="text-muted-foreground mb-6">
-                  Clique no botão abaixo para gerar um QR Code e conectar seu WhatsApp.
-                </p>
-                {isLoading ? (
-                  <Button disabled className="w-full">
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Gerando QR Code...
-                  </Button>
-                ) : (
-                  <Button onClick={generateQRCode} className="w-full">
-                    Gerar QR Code
-                  </Button>
-                )}
               </div>
             )}
-          </>
+            <p className="text-muted-foreground mb-6">
+              {status === "INITIALIZING" ? "Inicializando conexão..." : "Clique no botão para conectar ao WhatsApp"}
+            </p>
+            {isLoading || status === "INITIALIZING" ? (
+              <Button disabled className="w-full">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Iniciando...
+              </Button>
+            ) : (
+              <Button onClick={startConnection} className="w-full">
+                Conectar WhatsApp
+              </Button>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>
