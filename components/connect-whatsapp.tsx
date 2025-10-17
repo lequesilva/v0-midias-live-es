@@ -297,9 +297,24 @@ export default function ConnectWhatsApp() {
           </div>
         ) : status === "AUTH_FAILURE" ? (
           <div className="text-center w-full">
-            <div className="mb-4 p-4 bg-red-50 text-red-600 rounded-md flex items-center">
-              <AlertCircle className="mr-2" />
-              <span>Falha na autenticação. Tentando reconectar automaticamente...</span>
+            <div className="mb-4 p-4 bg-red-50 text-red-600 rounded-md">
+              <div className="flex items-start mb-3">
+                <AlertCircle className="mr-2 mt-0.5 flex-shrink-0" />
+                <div className="text-left">
+                  <p className="font-semibold mb-1">Falha na autenticação</p>
+                  <p className="text-sm">O WhatsApp não conseguiu se conectar. Possíveis causas:</p>
+                  <ul className="text-sm mt-2 space-y-1 list-disc list-inside">
+                    <li>QR Code expirou</li>
+                    <li>WhatsApp no celular está desconectado</li>
+                    <li>Erro no servidor</li>
+                  </ul>
+                </div>
+              </div>
+              {error && (
+                <div className="mt-2 p-2 bg-red-100 rounded text-xs text-left">
+                  <strong>Detalhes:</strong> {error}
+                </div>
+              )}
             </div>
             <Button onClick={reconnect} disabled={isLoading} className="w-full">
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}

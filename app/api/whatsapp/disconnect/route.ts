@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { whatsappManager } from "@/lib/whatsapp-manager"
+import { whatsappClientManager } from "@/lib/whatsapp-client"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -8,7 +8,7 @@ export async function POST() {
   try {
     console.log("[API /whatsapp/disconnect] Desconectando WhatsApp")
 
-    await whatsappManager.disconnect()
+    await whatsappClientManager.logout()
 
     console.log("[API /whatsapp/disconnect] Desconexão concluída")
 

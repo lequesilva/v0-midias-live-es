@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { whatsappManager } from "@/lib/whatsapp-manager"
+import { whatsappClientManager } from "@/lib/whatsapp-client"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -8,25 +8,7 @@ export async function POST() {
   try {
     console.log("[API /whatsapp/init] Iniciando conexão WhatsApp")
 
-    // Verificar se está disponível
-    if (!whatsappManager.isAvailable()) {
-      console.error("[API /whatsapp/init] WhatsApp não disponível")
-      return NextResponse.json(
-        {
-          success: false,
-          error: "WhatsApp Web.js não está disponível. Instale: npm install whatsapp-web.js qrcode puppeteer",
-        },
-        {
-          status: 400,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      )
-    }
-
-    // Inicializar
-    await whatsappManager.initialize()
+    await whatsappClientManager.initialize()
 
     console.log("[API /whatsapp/init] Inicialização concluída")
 

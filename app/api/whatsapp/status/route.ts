@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { whatsappManager } from "@/lib/whatsapp-manager"
+import { whatsappClientManager } from "@/lib/whatsapp-client"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -8,20 +8,29 @@ export async function GET() {
   try {
     console.log("[API /whatsapp/status] Verificando status")
 
-    const status = whatsappManager.getStatus()
-    const qrCode = whatsappManager.getQRCode()
-    const isAvailable = whatsappManager.isAvailable()
+    const statusData = await whatsappClientManager.getStatus()
+
+    let status = "DISCONNECTED"
+    if (statusData.isInitializing) {
+      status = "INITIALIZING"
+    } else if (statusData.qrCode) {
+      status = "QR_PENDING"
+    } else if (statusData.isReady) {
+      status = "READY"
+    } else if (statusData.error) {
+      status = "AUTH_FAILURE"
+    }
 
     console.log("[API /whatsapp/status] Status:", status)
-    console.log("[API /whatsapp/status] QR Code presente:", !!qrCode)
-    console.log("[API /whatsapp/status] Disponível:", isAvailable)
+    console.log("[API /whatsapp/status] QR Code presente:", !!statusData.qrCode)
 
     return NextResponse.json(
       {
         success: true,
         status,
-        qrCode,
-        isAvailable,
+        qrCode: statusData.qrCode,
+        isAvailable: true,
+        error: statusData.error
       },
       {
         status: 200,
